@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ conference.title }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        li {
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            border-left: 3px solid #6c757d;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .hidden {
+            display: none;
+        }
+        #status-message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success { background-color: #dff0d8; }
+        .error { background-color: #f2dede; }
+        .warning { background-color: #fcf8e3; }
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: #007bff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .retry-btn {
+            margin-left: 10px;
+            padding: 5px 10px;
+            background-color: #f0ad4e;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .agent-name {
+            font-weight: bold;
+            color: #0d6efd;
+        }
+        .user-name {
+            font-weight: bold;
+            color: #198754;
+        }
+        .timestamp {
+            font-size: 0.8em;
+            color: #6c757d;
+            margin-left: 10px;
+            display: block;
+            text-align: right;
+            margin-top: 5px;
+        }
+        .dialogue-enter {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .form-section {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .action-btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #0d6efd;
+            color: white;
+            margin-right: 10px;
+        }
+        .action-btn:hover {
+            background-color: #0b5ed7;
+        }
+        .end-btn {
+            background-color: #dc3545;
+        }
+        .end-btn:hover {
+            background-color: #bb2d3b;
+        }
+        select, input {
+            padding: 8px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        /* 新增样式 */
+        .speech-content {
+            margin-top: 5px;
+            line-height: 1.5;
+        }
+        .speech-content p {
+            margin: 10px 0;
+        }
+        .user-question {
+            background-color: #e7f5ee;
+            border-left: 3px solid #198754;
+        }
+        .user-question .speech-content {
+            font-style: italic;
+        }
+        #dialogue-list {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .conference-header {
+            background-color: #f0f7ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #0d6efd;
+        }
+        .conference-meta {
+            font-size: 0.9em;
+            color: #6c757d;
+            margin: 5px 0;
+        }
+        .home-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #0d6efd;
+            text-decoration: none;
+        }
+        .home-link:hover {
+            text-decoration: underline;
+        }
+        .phase-info {
+            background-color: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            border-left: 3px solid #28a745;
+        }
+        .phase-number {
+            font-weight: bold;
+            color: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-link">← 返回会议列表</a>
+    
+    <div class="conference-header">
+        <h1>{{ conference.title }}</h1>
+        <p class="conference-meta">
+            {% if conference.start_time %}
+            会议开始时间: {{ conference.start_time.split('T')[0] }} {{ conference.start_time.split('T')[1].split('.')[0] }}
+            {% endif %}
+        </p>
+        <p class="conference-meta">
+            参与者: 
+            {% for agent_id in conference.participant_agent_ids %}
+                {% for agent in agents %}
+                    {% if agent.agent_id == agent_id %}
+                        {{ agent.name }}{% if not loop.last %}, {% endif %}
+                    {% endif %}
+                {% endfor %}
+            {% endfor %}
+        </p>
+    </div>
+    
+    <div class="phase-info">
+        <div>
+            <span class="phase-number">阶段 {{ conference.current_phase_index + 1 }}/{{ conference.agenda|length }}</span>: 
+            <strong>{{ conference.agenda[conference.current_phase_index].phase_type }}</strong>
+        </div>
+        <div>
+            讨论主题: <strong>{{ conference.agenda[conference.current_phase_index].topics[0] }}</strong>
+        </div>
+    </div>
+    
+    <div id="status-message" class="hidden"></div>
+    <div id="dialogue-container">
+        <h3>对话历史</h3>
+        <ul id="dialogue-list">
+            {% for entry in dialogue %}
+            <li {% if entry.agent_id == "用户" %}class="user-question"{% endif %}>
+                <span class="{% if entry.agent_id == '用户' %}user-name{% else %}agent-name{% endif %}">
+                    {% if entry.agent_id == "用户" %}
+                        用户
+                    {% else %}
+                        {% for agent in agents %}
+                            {% if agent.agent_id == entry.agent_id %}
+                                {{ agent.name }}
+                            {% endif %}
+                        {% endfor %}
+                        {% if not entry.agent_id in agents|map(attribute='agent_id')|list %}
+                            {{ entry.agent_id }}
+                        {% endif %}
+                    {% endif %}
+                </span>: 
+                <div class="speech-content">
+                    {% set paragraphs = entry.speech.split('\n') %}
+                    {% for paragraph in paragraphs %}
+                        {% if loop.first %}
+                            <p style="margin-top: 0; display: inline;">{{ paragraph }}</p>
+                        {% elif paragraph.strip() %}
+                            <p>{{ paragraph }}</p>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% if entry.timestamp %}
+                <span class="timestamp">{{ entry.timestamp }}</span>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    <div class="form-section">
+        <h3>用户交互</h3>
+        <form id="interaction-form" method="POST">
+            <input type="hidden" name="conference_id" value="{{ conference.conference_id }}">
+            <label>动作：</label>
+            <select name="action" id="action" onchange="toggleQuestionFields()">
+                <option value="continue">继续</option>
+                <option value="interrupt">中断</option>
+                <option value="question">提问</option>
+            </select><br>
+            <div id="question-fields" class="hidden">
+                <label>选择代理：</label>
+                <select name="agent_id" id="agent_id" required>
+                    <option value="">-- 请选择代理 --</option>
+                    {% for agent in agents %}
+                    <option value="{{ agent.agent_id }}">{{ agent.name }} ({{ agent.agent_id }})</option>
+                    {% endfor %}
+                </select><br>
+                <label>问题：</label>
+                <input type="text" name="question" id="question" placeholder="请输入您的问题" required><br>
+            </div>
+            <button type="submit" id="submit-btn" class="action-btn">执行操作</button>
+        </form>
+    </div>
+    <div class="form-section">
+        <h3>会议控制</h3>
+        <form action="/conference/{{ conference.conference_id }}/advance" method="post" style="display: inline;">
+            <button type="submit" class="action-btn">推进阶段</button>
+        </form>
+        <form action="/conference/{{ conference.conference_id }}/end" method="post" style="display: inline;">
+            <button type="submit" class="action-btn end-btn">结束会议</button>
+        </form>
+    </div>
+    <script>
+        // WebSocket连接
+        let socket = null;
+        const conferenceId = "{{ conference.conference_id }}";
+        
+        function connectWebSocket() {
+            // 使用安全协议
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/${conferenceId}`;
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function(e) {
+                console.log("WebSocket连接已建立");
+            };
+            
+            socket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    appendDialogue(data);
+                } catch (e) {
+                    console.error("解析WebSocket消息时出错:", e);
+                }
+            };
+            
+            socket.onclose = function(event) {
+                if (event.wasClean) {
+                    console.log(`连接已关闭, 代码=${event.code}, 原因=${event.reason}`);
+                } else {
+                    console.log('连接意外关闭');
+                    // 尝试重新连接
+                    setTimeout(connectWebSocket, 2000);
+                }
+            };
+            
+            socket.onerror = function(error) {
+                console.error(`WebSocket错误: ${error.message}`);
+            };
+        }
+        
+        function appendDialogue(data) {
+            const dialogueList = document.getElementById("dialogue-list");
+            const li = document.createElement("li");
+            
+            // 检查是否为用户提问
+            const isUserQuestion = data.agent_id === "用户";
+            if (isUserQuestion) {
+                li.className = "dialogue-enter user-question";
+            } else {
+                li.className = "dialogue-enter";
+            }
+            
+            const agentNameSpan = document.createElement("span");
+            agentNameSpan.className = isUserQuestion ? "user-name" : "agent-name";
+            agentNameSpan.textContent = data.agent_name || data.agent_id;
+            
+            // 创建对话容器
+            const speechDiv = document.createElement("div");
+            speechDiv.className = "speech-content";
+            
+            // 处理段落分隔
+            const speech = data.speech || "";
+            const paragraphs = speech.split(/\n+/);
+            
+            // 添加代理名称和冒号
+            li.appendChild(agentNameSpan);
+            li.appendChild(document.createTextNode(": "));
+            
+            // 添加格式化后的内容
+            paragraphs.forEach((paragraph, index) => {
+                if (paragraph.trim() === "") return;
+                
+                const p = document.createElement("p");
+                p.textContent = paragraph.trim();
+                
+                // 第一段不需要额外的上边距
+                if (index === 0) {
+                    p.style.marginTop = "0";
+                    p.style.display = "inline";
+                }
+                
+                speechDiv.appendChild(p);
+            });
+            
+            li.appendChild(speechDiv);
+            
+            if (data.timestamp) {
+                const timeSpan = document.createElement("span");
+                timeSpan.className = "timestamp";
+                timeSpan.textContent = data.timestamp;
+                li.appendChild(timeSpan);
+            }
+            
+            dialogueList.appendChild(li);
+            
+            // 自动滚动到底部
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+
+        function toggleQuestionFields() {
+            const action = document.getElementById("action").value;
+            const questionFields = document.getElementById("question-fields");
+            const agentIdField = document.getElementById("agent_id");
+            const questionField = document.getElementById("question");
+            
+            if (action === "question") {
+                questionFields.classList.remove("hidden");
+                agentIdField.setAttribute("required", "required");
+                questionField.setAttribute("required", "required");
+            } else {
+                questionFields.classList.add("hidden");
+                agentIdField.removeAttribute("required");
+                questionField.removeAttribute("required");
+            }
+        }
+
+        // 存储上次的表单数据，用于重试
+        let lastFormData = null;
+        
+        // 在页面加载时检查本地存储中是否有未完成的操作
+        window.addEventListener('load', function() {
+            connectWebSocket();
+            toggleQuestionFields(); // 确保初始状态正确
+            
+            const pendingOperation = localStorage.getItem('pendingOperation');
+            if (pendingOperation) {
+                try {
+                    const operation = JSON.parse(pendingOperation);
+                    if (operation.conferenceId === "{{ conference.conference_id }}") {
+                        const statusMessage = document.getElementById("status-message");
+                        statusMessage.innerHTML = `上次操作可能未完成: ${operation.action} <button class="retry-btn" onclick="retryLastOperation()">重试</button>`;
+                        statusMessage.className = "warning";
+                        statusMessage.classList.remove("hidden");
+                        lastFormData = new FormData();
+                        for (const key in operation) {
+                            if (key !== 'conferenceId') {
+                                lastFormData.append(key, operation[key]);
+                            }
+                        }
+                        lastFormData.append('conference_id', operation.conferenceId);
+                    }
+                } catch (e) {
+                    console.error("解析未完成操作时出错:", e);
+                    localStorage.removeItem('pendingOperation');
+                }
+            }
+        });
+        
+        function retryLastOperation() {
+            if (lastFormData) {
+                processFormSubmission(lastFormData);
+            }
+        }
+
+        async function processFormSubmission(formData) {
+            const statusMessage = document.getElementById("status-message");
+            const submitBtn = document.getElementById("submit-btn");
+            const conferenceId = formData.get("conference_id");
+            const action = formData.get("action");
+
+            // 验证提问操作的必要字段
+            if (action === "question") {
+                const agentId = formData.get("agent_id");
+                const question = formData.get("question");
+                
+                if (!agentId || agentId.trim() === "") {
+                    statusMessage.textContent = "错误：提问时必须选择代理";
+                    statusMessage.className = "error";
+                    statusMessage.classList.remove("hidden");
+                    return;
+                }
+                
+                if (!question || question.trim() === "") {
+                    statusMessage.textContent = "错误：提问时必须输入问题";
+                    statusMessage.className = "error";
+                    statusMessage.classList.remove("hidden");
+                    return;
+                }
+            }
+
+            // 保存当前操作到本地存储
+            const operationData = {
+                conferenceId: conferenceId,
+                action: action
+            };
+            
+            if (action === "question") {
+                operationData.agent_id = formData.get("agent_id");
+                operationData.question = formData.get("question");
+            }
+            
+            localStorage.setItem('pendingOperation', JSON.stringify(operationData));
+
+            // 构建正确的URL
+            const url = `/conference/${conferenceId}/end_phase`;
+            
+            submitBtn.disabled = true;
+            statusMessage.innerHTML = '<div class="loading-spinner"></div>处理中...';
+            statusMessage.className = "";
+            statusMessage.classList.remove("hidden");
+            
+            let retryCount = 0;
+            const maxRetries = 2;
+            const retryDelay = 2000; // 2秒
+            
+            async function attemptRequest() {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    let result;
+                    try {
+                        result = await response.json();
+                    } catch (e) {
+                        throw new Error("服务器返回了无效的数据格式");
+                    }
+
+                    if (!response.ok) {
+                        if (result.error === "操作超时，API 可能暂时不可用" && retryCount < maxRetries) {
+                            retryCount++;
+                            statusMessage.innerHTML = `API 调用超时，正在重试 (${retryCount}/${maxRetries})... <button class="retry-btn" onclick="retryLastOperation()">手动重试</button>`;
+                            statusMessage.className = "warning";
+                            setTimeout(attemptRequest, retryDelay);
+                            return;
+                        }
+                        
+                        if (result.fallback_response) {
+                            // 显示后备响应，但保持错误状态
+                            const dialogueList = document.getElementById("dialogue-list");
+                            const li = document.createElement("li");
+                            li.className = "dialogue-enter";
+                            li.innerHTML = `<i>${result.fallback_response}</i>`;
+                            dialogueList.appendChild(li);
+                        }
+                    }
+
+                    statusMessage.textContent = result.message || "操作成功";
+                    statusMessage.className = response.ok ? "success" : "error";
+
+                    if (response.ok) {
+                        // 清除待处理操作
+                        localStorage.removeItem('pendingOperation');
+                        
+                        if (result.dialogue) {
+                            // 由WebSocket处理对话更新
+                        }
+                        
+                        // 重置表单
+                        document.getElementById("interaction-form").reset();
+                        toggleQuestionFields();
+                        submitBtn.disabled = false;
+                    } else {
+                        // 添加重试按钮
+                        statusMessage.innerHTML = statusMessage.textContent + 
+                            ' <button class="retry-btn" onclick="retryLastOperation()">重试</button>';
+                    }
+                } catch (error) {
+                    if (retryCount < maxRetries) {
+                        retryCount++;
+                        statusMessage.innerHTML = `请求失败，正在重试 (${retryCount}/${maxRetries})... <button class="retry-btn" onclick="retryLastOperation()">手动重试</button>`;
+                        statusMessage.className = "warning";
+                        setTimeout(attemptRequest, retryDelay);
+                    } else {
+                        statusMessage.innerHTML = "操作失败：" + error.message + 
+                            ' <button class="retry-btn" onclick="retryLastOperation()">重试</button>';
+                        statusMessage.className = "error";
+                    }
+                } finally {
+                    if (retryCount >= maxRetries) {
+                        submitBtn.disabled = false;
+                    }
+                }
+            }
+            
+            await attemptRequest();
+        }
+
+        document.getElementById("interaction-form").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            lastFormData = formData;
+            await processFormSubmission(formData);
+        });
+        
+        // 发送保持连接消息
+        function keepAlive() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send('keepalive');
+            }
+        }
+        
+        // 每30秒发送一次保持连接消息
+        setInterval(keepAlive, 30000);
+    </script>
+</body>
+</html>

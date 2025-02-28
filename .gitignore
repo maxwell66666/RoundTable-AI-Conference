@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# 本地数据库
+*.db
+*.sqlite3
+
+# 本地配置
+.env
+
+# 备份文件
+backups/
+releases/
+*.tar.gz
+*.zip
+
+# 对话历史
+dialogue_history_*.json
+
+# 云服务凭证
+gcp-credentials.json
+aws-credentials.*
+azure-credentials.*
+
+# 日志
+*.log
+logs/
+
+# IDE 文件
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# 临时文件
+tmp/
+temp/
+
+# 如果有前端编译文件
+node_modules/ 

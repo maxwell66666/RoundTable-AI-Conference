@@ -1,0 +1,83 @@
+name: 持续集成与部署
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+      
+      - name: 设置Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: 安装测试依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio flake8
+      
+      - name: 代码风格检查
+        run: |
+          # 运行flake8进行代码风格检查
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      
+      - name: 运行测试
+        run: |
+          # 运行pytest进行单元测试
+          pytest
+  
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+      
+      - name: 设置Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: 登录到Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: 构建和推送
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/roundtable:latest
+      
+      - name: 更新版本号
+        run: |
+          # 获取当前版本
+          current_version=$(grep "__version__" version.py | cut -d'"' -f2)
+          echo "当前版本: $current_version"
+          
+          # 正式发布时才更新补丁版本号
+          if [[ "${{ github.ref }}" == "refs/heads/master" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+            python release.py bump --type patch --auto-changelog
+            new_version=$(grep "__version__" version.py | cut -d'"' -f2)
+            echo "新版本: $new_version"
+            
+            # 提交版本更新
+            git config --local user.email "actions@github.com"
+            git config --local user.name "GitHub Actions"
+            git add version.py
+            git commit -m "自动更新版本到 $new_version [skip ci]"
+            git push
+          fi 

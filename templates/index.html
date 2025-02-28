@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>会议管理系统</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .conference-list {
+            margin-bottom: 30px;
+        }
+        .conference-item {
+            margin-bottom: 8px;
+            padding: 10px;
+            border-left: 3px solid #0d6efd;
+            background-color: #f8f9fa;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+        }
+        .btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #0d6efd;
+            color: white;
+        }
+        .btn:hover {
+            background-color: #0b5ed7;
+        }
+        select[multiple] {
+            height: 150px;
+        }
+        .conference-date {
+            font-size: 0.8em;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <h1>会议管理系统</h1>
+    <div class="conference-list">
+        <h2>现有会议</h2>
+        <ul>
+            {% for conf in conferences %}
+            <li class="conference-item">
+                <a href="/conference/{{ conf.conference_id }}">{{ conf.title }}</a>
+                {% if conf.start_time %}
+                <div class="conference-date">开始于: {{ conf.start_time.split('T')[0] }} {{ conf.start_time.split('T')[1].split('.')[0] }}</div>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    <h2>启动新会议</h2>
+    示例：上传议程文件（JSON格式），例如：
+    <pre>
+    [
+      {
+        "phase_type": "Topic Discussion",
+        "topics": ["AI Ethics"],
+        "duration": 30
+      },
+      {
+        "phase_type": "Expert Sharing",
+        "topics": ["Machine Learning Applications"],
+        "duration": 45
+      }
+    ]
+    </pre>
+    <form id="conference-form" action="/start_conference" method="post">
+        <div class="form-group">
+            <label for="conference_title">会议标题（可选，留空将使用日期+主题）：</label>
+            <input type="text" id="conference_title" name="conference_title" placeholder="例如：产品战略研讨会">
+        </div>
+        <div class="form-group">
+            <label for="agenda-editor">创建新议程：</label>
+            <textarea id="agenda-editor" name="agenda" rows="10" cols="50">[
+  {
+    "phase_type": "主题讨论",
+    "topics": ["AI伦理与隐私"],
+    "duration": 30
+  },
+  {
+    "phase_type": "专家分享",
+    "topics": ["AI监管框架"],
+    "duration": 45
+  }
+]</textarea>
+            <button type="button" class="btn" onclick="validateJSON()">验证JSON</button>
+        </div>
+        
+        <div class="form-group">
+            <label for="agent_ids">选择参与代理：</label>
+            <select multiple name="agent_ids_select" id="agent_ids" required>
+                {% for agent in agents %}
+                <option value="{{ agent.agent_id }}">{{ agent.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn" onclick="return prepareSubmit()">启动会议</button>
+    </form>
+    
+    <script>
+    function validateJSON() {
+        const editor = document.getElementById('agenda-editor');
+        try {
+            const agenda = JSON.parse(editor.value);
+            if (!Array.isArray(agenda)) throw new Error('议程必须是数组格式');
+            agenda.forEach((phase, index) => {
+                if (!phase.phase_type) throw new Error(`第${index + 1}阶段缺少phase_type`);
+                if (!phase.topics || !phase.topics.length) throw new Error(`第${index + 1}阶段缺少topics`);
+            });
+            alert('议程格式验证成功！');
+            return true;
+        } catch (e) {
+            alert('议程格式错误：' + e.message);
+            return false;
+        }
+    }
+
+    function prepareSubmit() {
+        const select = document.getElementById('agent_ids');
+        const selectedAgents = Array.from(select.selectedOptions).map(option => option.value);
+        if (selectedAgents.length === 0) {
+            alert('请选择至少一个代理');
+            return false;
+        }
+        
+        // 创建一个隐藏字段用于存储逗号分隔的代理ID
+        const form = document.getElementById('conference-form');
+        const hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'agent_ids';
+        hiddenInput.value = selectedAgents.join(',');
+        form.appendChild(hiddenInput);
+        
+        return validateJSON();
+    }
+    </script>
+</body>
+</html>

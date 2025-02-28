@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  roundtable:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: roundtable:${APP_VERSION:-latest}
+    container_name: roundtable-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+      - ./.env:/app/.env:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - MAX_TOKENS=${MAX_TOKENS:-4096}
+      - TEMPERATURE=${TEMPERATURE:-0.7}
+      - DISCUSSION_ROUNDS=${DISCUSSION_ROUNDS:-2}
+      - ENABLE_AUTO_BACKUP=${ENABLE_AUTO_BACKUP:-false}
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    command: --reload
+    networks:
+      - roundtable-network
+
+  # 备份服务 - 可选，如果不需要自动备份可以移除
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: roundtable:${APP_VERSION:-latest}
+    container_name: roundtable-backup
+    profiles: ["backup"]
+    restart: "no"
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+      - ./.env:/app/.env:ro
+    environment:
+      - TZ=Asia/Shanghai
+    command: python backup.py create
+    networks:
+      - roundtable-network
+    depends_on:
+      - roundtable
+
+networks:
+  roundtable-network:
+    driver: bridge 

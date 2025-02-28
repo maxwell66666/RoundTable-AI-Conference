@@ -1,0 +1,58 @@
+name: 自动备份与版本管理
+
+on:
+  schedule:
+    # 每天凌晨2点执行
+    - cron: '0 2 * * *'
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: 设置Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: 设置环境变量
+        run: |
+          # 从GitHub Secrets加载环境变量
+          echo "APP_VERSION=${{ secrets.APP_VERSION }}" >> $GITHUB_ENV
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> $GITHUB_ENV
+          # 备份凭证
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
+          echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> $GITHUB_ENV
+          echo "AWS_BUCKET=${{ secrets.AWS_BUCKET }}" >> $GITHUB_ENV
+      
+      - name: 创建备份
+        run: |
+          # 只有在服务器上部署时，才能真正运行备份
+          # 这里只做模拟演示
+          echo "在生产环境中，这里会运行：python backup.py create"
+          
+      - name: 生成版本信息
+        run: |
+          # 收集变更信息
+          git log --pretty=format:"%s" -10 > changelog.txt
+          echo "最近的10个提交信息已保存到changelog.txt"
+      
+      - name: 上传变更日志
+        uses: actions/upload-artifact@v3
+        with:
+          name: changelog
+          path: changelog.txt
+          retention-days: 30 
