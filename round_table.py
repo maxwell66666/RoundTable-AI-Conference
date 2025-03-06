@@ -282,7 +282,7 @@ def get_referenced_agent_name(text, agent_ids):
     return modified_text
 
 # 使用 LLM API 生成代理发言
-def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
+def generate_agent_speech(agent, phase_name, topic, previous_speech=None):
     """使用指定的 LLM API 生成代理的发言。"""
     skills = ", ".join(agent.background_info.get("skills", []))
     mbti = agent.personality_traits.get("mbti", "未知")
@@ -290,7 +290,7 @@ def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
     tone = agent.communication_style.get("tone", "中立")
 
     # 根据阶段类型和上下文构建提示词
-    if phase_type == "主题讨论":
+    if phase_name == "主题讨论":
         if previous_speech:
             previous_agent_name = get_agent_name_by_id(previous_speech['agent_id']) or previous_speech['agent_id']
             
@@ -308,7 +308,7 @@ def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
 5. 提出一个深度思考问题，推动讨论向更深层次发展
 
 请以 {tone} 的语调回答，避免空泛的表达和客套话。直接使用对方的名字 {previous_agent_name} 而不是代号。
-限制在500字以内，保持内容丰富但简洁。请用中文回答。"""
+限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
             else:
                 prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请回应 {previous_agent_name} 关于 {topic} 的观点。
 
@@ -320,7 +320,7 @@ def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
 5. 提出一个深度思考问题，推动讨论向更深层次发展
 
 请以 {tone} 的语调回答，避免空泛的表达和客套话。直接使用对方的名字 {previous_agent_name} 而不是代号。
-限制在500字以内，保持内容丰富但简洁。请用中文回答。"""
+限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
         else:
             prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 展开深度分析。
 
@@ -332,8 +332,8 @@ def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
 5. 分析这些方案的可能影响和实施难点
 
 请以 {tone} 的语调回答，避免空泛的表达和客套话。
-限制在500字以内，保持内容丰富但简洁。请用中文回答。"""
-    elif phase_type == "专家分享":
+限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+    elif phase_name == "专家分享":
         if previous_speech and "专家" in previous_speech["speech"].lower():
             previous_agent_name = get_agent_name_by_id(previous_speech['agent_id']) or previous_speech['agent_id']
             prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请在 {previous_agent_name} 关于 {topic} 的专业分享基础上进行扩展。
@@ -346,7 +346,7 @@ def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
 5. 指出当前领域内存在的争议或未解问题
 
 请以 {tone} 的语调回答，确保内容既有专业深度又通俗易懂。直接使用对方的名字 {previous_agent_name} 而不是代号。
-限制在500字以内，保持内容丰富但简洁。请用中文回答。"""
+限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
         else:
             prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 进行专业性分享。
 
@@ -358,8 +358,8 @@ def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
 5. 提出对未来发展的预测或建议
 
 请以 {tone} 的语调回答，确保内容既有专业深度又通俗易懂。
-限制在500字以内，保持内容丰富但简洁。请用中文回答。"""
-    elif phase_type == "问答":
+限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+    elif phase_name == "问答":
         prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 相关问题提供专业回答。
 
 你的回应需要：
@@ -370,7 +370,7 @@ def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
 5. 在适当的情况下，承认领域内的不确定性或知识局限
 
 请以 {tone} 的语调回答，确保内容既权威又易于理解。
-限制在500字以内，保持内容丰富但简洁。请用中文回答。"""
+限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
     else:
         prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 提供深入评论。
 
@@ -382,7 +382,7 @@ def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
 5. 提出创新性的思考方向或解决思路
 
 请以 {tone} 的语调回答，避免空泛的表达和客套话。
-限制在500字以内，保持内容丰富但简洁。请用中文回答。"""
+限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
 
     # 获取该代理的模型字符串
     agent_model = os.getenv(f"MODEL_{agent.agent_id}", os.getenv("DEFAULT_MODEL", f"{DEFAULT_PROVIDER}:gpt-3.5-turbo"))
@@ -426,36 +426,46 @@ def generate_agent_speech(agent, phase_type, topic, previous_speech=None):
 # 开始阶段讨论的函数
 def start_phase_discussion(conference_id, phase_id):
     """为会议中的特定阶段启动讨论。"""
-    conference = get_conference(conference_id)
-    if not conference:
-        print(f"未找到ID为 {conference_id} 的会议！")
-        return False
+    try:
+        conference = get_conference(conference_id)
+        if not conference:
+            error_msg = f"未找到ID为 {conference_id} 的会议！"
+            print(error_msg)
+            return error_msg
 
-    if phase_id < 0 or phase_id >= len(conference.agenda):
-        print(f"会议 '{conference.title}' 的阶段ID {phase_id} 无效！")
-        return False
+        if phase_id < 0 or phase_id >= len(conference.agenda):
+            error_msg = f"会议 '{conference.title}' 的阶段ID {phase_id} 无效！"
+            print(error_msg)
+            return error_msg
 
-    current_phase = conference.agenda[phase_id]
-    phase_type = current_phase["phase_type"]
-    topics = current_phase["topics"]
-    topic = topics[0]  # 为简单起见使用第一个话题
+        current_phase = conference.agenda[phase_id]
+        phase_name = current_phase["phase_name"]
+        topics = current_phase["topics"]
+        topic = topics[0]  # 为简单起见使用第一个话题
 
-    print(f"开始 {phase_type} 讨论，主题为 {topic}...")
-    agents = [get_agent(agent_id) for agent_id in conference.participant_agent_ids]
-    if not agents or any(agent is None for agent in agents):
-        print("错误：未找到有效的讨论代理！")
-        return False
+        print(f"开始 {phase_name} 讨论，主题为 {topic}...")
+        agents = [get_agent(agent_id) for agent_id in conference.participant_agent_ids]
+        if not agents or any(agent is None for agent in agents):
+            error_msg = "错误：未找到有效的讨论代理！"
+            print(error_msg)
+            return error_msg
 
-    dialogue_history = manage_turn_taking(conference_id, phase_type, topic, agents)
-
-    # 将对话历史保存到文件
-    with open(f"dialogue_history_{conference_id}_{phase_id}.json", "w") as f:
-        json.dump(dialogue_history, f, indent=4)
-    print(f"对话历史已保存到 'dialogue_history_{conference_id}_{phase_id}.json'")
-    return True
+        dialogue_history = manage_turn_taking(conference_id, phase_name, topic, agents)
+        
+        # 如果对话历史为空可能表示出错了
+        if not dialogue_history:
+            error_msg = "错误：讨论过程未生成有效对话，可能是API调用失败"
+            print(error_msg)
+            return error_msg
+            
+        return True
+    except Exception as e:
+        error_msg = f"讨论过程出错: {str(e)}"
+        print(error_msg)
+        return error_msg
 
 # 管理代理轮流发言的函数，带有动态响应
-def manage_turn_taking(conference_id, phase_type, topic, agents):
+def manage_turn_taking(conference_id, phase_name, topic, agents):
     """管理轮流发言并实现动态代理交互。"""
     dialogue_history = []
     available_agents = agents.copy()
@@ -488,7 +498,7 @@ def manage_turn_taking(conference_id, phase_type, topic, agents):
                 # 使用倒数第二条记录，也就是代理的回答
                 previous_speech = dialogue_history[-2]
                 
-            speech = agent_speak(agent.agent_id, conference_id, phase_type, topic, previous_speech)
+            speech = agent_speak(agent.agent_id, conference_id, phase_name, topic, previous_speech)
             timestamp = datetime.now().isoformat()
             dialogue_history.append({"agent_id": agent.agent_id, "speech": speech, "timestamp": timestamp})
             
@@ -502,7 +512,7 @@ def manage_turn_taking(conference_id, phase_type, topic, agents):
     return dialogue_history
 
 # 代理发言的函数
-def agent_speak(agent_id, conference_id, phase_type, topic, previous_speech=None):
+def agent_speak(agent_id, conference_id, phase_name, topic, previous_speech=None):
     """为阶段生成并返回代理的发言。"""
     agent = get_agent(agent_id)
     if not agent:
@@ -512,7 +522,7 @@ def agent_speak(agent_id, conference_id, phase_type, topic, previous_speech=None
     if not conference:
         return f"未找到ID为 {conference_id} 的会议！"
 
-    return generate_agent_speech(agent, phase_type, topic, previous_speech)
+    return generate_agent_speech(agent, phase_name, topic, previous_speech)
 
 # 用户干预的函数
 def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, user_input=None):
@@ -528,7 +538,7 @@ def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, u
 
     current_phase = conference.agenda[phase_id]
     topic = current_phase["topics"][0]
-    phase_type = current_phase["phase_type"]
+    phase_name = current_phase["phase_name"]
 
     if user_action == "interrupt":
         print(f"用户中断了关于 {topic} 的讨论。")
@@ -556,7 +566,7 @@ def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, u
 
 请以 {agent.communication_style.get('tone', '中立')} 的语调回答，保持专业性的同时确保内容通俗易懂。
 请用中文回答，引用其他代理时请使用他们的名字而不是代号。
-限制在500字以内，保持内容丰富但简洁。"""
+限制在300字以内，保持内容丰富但简洁。"""
         
         try:
             print(f"正在使用 {provider} 的 {model_name} 模型生成 {agent.name} 的回应...")

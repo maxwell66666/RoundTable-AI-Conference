@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>对话历史 - RoundTable会议系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/main.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>RoundTable</h1>
+            </div>
+            <div class="sidebar-nav">
+                <a href="/" class="nav-item">
+                    <i class="ri-dashboard-line"></i>
+                    <span>首页</span>
+                </a>
+                <a href="/conferences" class="nav-item">
+                    <i class="ri-calendar-event-line"></i>
+                    <span>会议管理</span>
+                </a>
+                <a href="/dialogue_histories" class="nav-item active">
+                    <i class="ri-message-3-line"></i>
+                    <span>对话历史</span>
+                </a>
+                <a href="/agent" class="nav-item">
+                    <i class="ri-user-line"></i>
+                    <span>专家管理</span>
+                </a>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">系统</div>
+                    <a href="#" class="nav-item">
+                        <i class="ri-settings-3-line"></i>
+                        <span>系统设置</span>
+                    </a>
+                    <a href="https://github.com/yourusername/RoundTable" target="_blank" class="nav-item">
+                        <i class="ri-github-line"></i>
+                        <span>文档</span>
+                    </a>
+                </div>
+            </div>
+            <div class="sidebar-footer">
+                版本 {{ version.version }}
+            </div>
+        </aside>
+        
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <button class="sidebar-toggle" id="sidebar-toggle">
+                <i class="ri-menu-line"></i>
+            </button>
+            <div class="header-title">对话历史</div>
+            <div class="header-actions">
+                <button class="btn btn-sm" id="refresh-history-btn">
+                    <i class="ri-refresh-line btn-icon"></i>
+                    <span>刷新列表</span>
+                </button>
+            </div>
+        </header>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">对话历史管理</h1>
+                <p class="page-subtitle">管理保存的对话历史记录，浏览和整理您的会议对话存档。</p>
+            </div>
+            
+            <!-- 对话历史卡片 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">对话历史列表</h2>
+                </div>
+                <div class="card-body">
+                    <!-- 工具栏 -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <div style="color: var(--text-medium); font-size: 0.9rem;">
+                            <i class="ri-information-line"></i> 此处显示所有对话历史文件，可以查看或删除。
+                        </div>
+                        <div style="position: relative;">
+                            <div style="display: flex; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden;">
+                                <input type="text" id="search-input" placeholder="搜索会议标题或ID..." style="border: none; padding: 8px 12px; width: 250px; font-size: 0.9rem;" oninput="filterHistories()">
+                                <button style="background: var(--primary-color); color: white; border: none; padding: 0 15px; cursor: pointer;" onclick="filterHistories()">
+                                    <i class="ri-search-line"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 会议过滤器 -->
+                    <div id="conference-filters" style="margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 8px;">
+                        <!-- 会议过滤器会在加载数据后由JavaScript填充 -->
+                    </div>
+                    
+                    <!-- 加载状态 -->
+                    <div id="history-loading" style="text-align: center; padding: 40px; color: var(--text-medium);">
+                        <div style="width: 30px; height: 30px; border: 2px solid rgba(0,0,0,0.1); border-radius: 50%; border-top-color: var(--primary-color); animation: spin 1s linear infinite; margin: 0 auto 15px auto;"></div>
+                        <div>正在加载历史文件...</div>
+                    </div>
+                    
+                    <!-- 错误信息 -->
+                    <div id="history-error" style="display: none; background-color: rgba(165, 127, 120, 0.1); color: var(--danger-color); padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid var(--danger-color);"></div>
+                    
+                    <!-- 历史表格 -->
+                    <table id="history-table" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th style="width: 10%">会议ID</th>
+                                <th style="width: 8%">阶段</th>
+                                <th style="width: 35%">会议标题</th>
+                                <th style="width: 10%">大小(KB)</th>
+                                <th style="width: 22%">修改时间</th>
+                                <th style="width: 15%">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-list">
+                            <!-- 由JavaScript填充 -->
+                        </tbody>
+                    </table>
+                    
+                    <!-- 无结果提示 -->
+                    <div id="no-results" style="display: none; text-align: center; padding: 40px; color: var(--text-medium);">
+                        没有找到匹配的对话历史记录
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 帮助卡片 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">历史记录管理帮助</h2>
+                </div>
+                <div class="card-body">
+                    <h3 style="margin-bottom: 12px; font-weight: 500; color: var(--text-dark);">关于对话历史文件</h3>
+                    <p style="color: var(--text-medium); margin-bottom: 15px;">对话历史文件保存了每次会议中各个阶段的交流内容，用于回顾和分析。</p>
+                    <ul style="margin-left: 20px; color: var(--text-medium);">
+                        <li style="margin-bottom: 8px;">文件名格式：dialogue_history_[会议ID]_[阶段ID].json</li>
+                        <li style="margin-bottom: 8px;">删除操作不可撤销，请谨慎操作</li>
+                        <li>您可以使用搜索功能快速查找特定会议的历史记录</li>
+                    </ul>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 删除确认对话框 -->
+    <div class="modal-backdrop" id="delete-confirm-modal">
+        <div class="modal" id="delete-confirm-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3 class="modal-title">确认删除</h3>
+                <button class="modal-close" id="close-delete-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>确定要删除此对话历史文件吗？</p>
+                <p style="color: var(--danger-color); font-size: 0.9rem; margin-top: 10px;">
+                    <i class="ri-error-warning-line"></i> 此操作不可恢复。
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="cancel-delete">取消</button>
+                <button class="btn btn-danger" id="confirm-delete">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+
+    <script>
+        // 侧边栏切换
+        document.getElementById('sidebar-toggle').addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+            document.querySelector('.main-content').classList.toggle('expanded');
+            document.querySelector('.header').classList.toggle('expanded');
+        });
+        
+        // 存储所有历史记录数据
+        let allHistories = [];
+        // 存储所有唯一的会议ID
+        let uniqueConferenceIds = [];
+        
+        // 删除确认对话框
+        const deleteModal = document.getElementById('delete-confirm-modal');
+        const deleteModalContent = document.getElementById('delete-confirm-content');
+        let filenameToDelete = null;
+        
+        function closeDeleteModal() {
+            deleteModalContent.classList.remove('active');
+            setTimeout(() => {
+                deleteModal.classList.remove('active');
+                filenameToDelete = null;
+            }, 300);
+        }
+        
+        document.getElementById('close-delete-modal').addEventListener('click', closeDeleteModal);
+        document.getElementById('cancel-delete').addEventListener('click', closeDeleteModal);
+        
+        deleteModal.addEventListener('click', function(e) {
+            if (e.target === deleteModal) {
+                closeDeleteModal();
+            }
+        });
+        
+        // 加载对话历史列表
+        function loadDialogueHistories() {
+            const loadingEl = document.getElementById('history-loading');
+            const errorEl = document.getElementById('history-error');
+            const tableEl = document.getElementById('history-table');
+            const listEl = document.getElementById('history-list');
+            const noResultsEl = document.getElementById('no-results');
+            const filtersEl = document.getElementById('conference-filters');
+            
+            // 显示加载状态
+            loadingEl.style.display = 'block';
+            errorEl.style.display = 'none';
+            tableEl.style.display = 'none';
+            noResultsEl.style.display = 'none';
+            
+            // 清空过滤器
+            filtersEl.innerHTML = '';
+            
+            // 发送API请求
+            fetch('/api/dialogue_histories')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`获取对话历史失败: ${response.status} ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // 隐藏加载状态
+                    loadingEl.style.display = 'none';
+                    
+                    // 保存所有历史记录数据
+                    allHistories = data;
+                    
+                    // 提取所有唯一的会议ID
+                    uniqueConferenceIds = [...new Set(data.map(h => h.conference_id))];
+                    
+                    // 创建会议ID过滤器
+                    createConferenceFilters(uniqueConferenceIds);
+                    
+                    // 显示历史记录
+                    displayHistories(data);
+                })
+                .catch(error => {
+                    // 显示错误信息
+                    loadingEl.style.display = 'none';
+                    errorEl.textContent = `错误: ${error.message}`;
+                    errorEl.style.display = 'block';
+                });
+        }
+        
+        // 创建会议ID过滤器
+        function createConferenceFilters(conferenceIds) {
+            const filtersEl = document.getElementById('conference-filters');
+            
+            // 添加"全部"按钮
+            const allButton = document.createElement('button');
+            allButton.className = 'btn btn-sm';
+            allButton.style.backgroundColor = 'var(--primary-color)';
+            allButton.textContent = '全部';
+            allButton.onclick = () => filterByConferenceId(null, allButton);
+            allButton.id = 'filter-all';
+            filtersEl.appendChild(allButton);
+            
+            // 为每个会议ID添加一个过滤按钮
+            conferenceIds.forEach(id => {
+                const button = document.createElement('button');
+                button.className = 'btn btn-outline btn-sm';
+                button.textContent = `会议 ${id}`;
+                button.onclick = () => filterByConferenceId(id, button);
+                button.id = `filter-${id}`;
+                filtersEl.appendChild(button);
+            });
+        }
+        
+        // 按会议ID过滤历史记录
+        function filterByConferenceId(conferenceId, buttonElement) {
+            // 更新按钮样式
+            document.querySelectorAll('#conference-filters button').forEach(btn => {
+                if (btn.id === 'filter-all') {
+                    btn.style.backgroundColor = 'var(--bg-light)';
+                    btn.style.color = 'var(--text-medium)';
+                    btn.className = 'btn btn-outline btn-sm';
+                } else {
+                    btn.className = 'btn btn-outline btn-sm';
+                }
+            });
+            
+            if (buttonElement.id === 'filter-all') {
+                buttonElement.style.backgroundColor = 'var(--primary-color)';
+                buttonElement.style.color = 'white';
+                buttonElement.className = 'btn btn-sm';
+            } else {
+                buttonElement.className = 'btn btn-sm';
+                buttonElement.style.backgroundColor = 'var(--primary-color)';
+            }
+            
+            // 清空搜索框
+            document.getElementById('search-input').value = '';
+            
+            // 过滤数据
+            if (conferenceId) {
+                const filteredHistories = allHistories.filter(h => h.conference_id === conferenceId);
+                displayHistories(filteredHistories);
+            } else {
+                // 显示全部
+                displayHistories(allHistories);
+            }
+        }
+        
+        // 显示历史记录
+        function displayHistories(histories) {
+            const tableEl = document.getElementById('history-table');
+            const listEl = document.getElementById('history-list');
+            const noResultsEl = document.getElementById('no-results');
+            
+            // 清空列表
+            listEl.innerHTML = '';
+            
+            if (histories.length === 0) {
+                tableEl.style.display = 'none';
+                noResultsEl.style.display = 'block';
+            } else {
+                // 显示表格
+                tableEl.style.display = 'table';
+                noResultsEl.style.display = 'none';
+                
+                // 填充数据
+                histories.forEach(history => {
+                    const row = document.createElement('tr');
+                    
+                    // 创建简化的文件名显示
+                    let displayName = history.filename.replace('dialogue_history_', '').replace('.json', '');
+                    
+                    row.innerHTML = `
+                        <td>${history.conference_id}</td>
+                        <td>${history.phase_id}</td>
+                        <td>${history.conference_title || '未知会议'}</td>
+                        <td>${history.size_kb}</td>
+                        <td>${history.modified}</td>
+                        <td>
+                            <div class="tooltip" data-tooltip="${history.filename}" style="margin-right:8px; display: inline-block;">
+                                <span style="display: inline-block; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;">${displayName}</span>
+                            </div>
+                            <button class="btn btn-danger btn-sm" onclick="confirmDelete('${history.filename}')">
+                                <i class="ri-delete-bin-line"></i>
+                            </button>
+                        </td>
+                    `;
+                    
+                    listEl.appendChild(row);
+                });
+            }
+        }
+        
+        // 过滤历史记录
+        function filterHistories() {
+            const searchInput = document.getElementById('search-input').value.toLowerCase();
+            
+            if (!searchInput.trim()) {
+                // 如果搜索框为空，显示所有历史记录
+                displayHistories(allHistories);
+                return;
+            }
+            
+            // 过滤符合搜索条件的历史记录
+            const filteredHistories = allHistories.filter(history => {
+                return (
+                    (history.conference_title && history.conference_title.toLowerCase().includes(searchInput)) ||
+                    history.conference_id.toLowerCase().includes(searchInput) ||
+                    history.filename.toLowerCase().includes(searchInput)
+                );
+            });
+            
+            // 显示过滤后的历史记录
+            displayHistories(filteredHistories);
+        }
+        
+        // 确认删除对话历史
+        function confirmDelete(filename) {
+            filenameToDelete = filename;
+            
+            // 显示删除确认对话框
+            deleteModal.classList.add('active');
+            setTimeout(() => {
+                deleteModalContent.classList.add('active');
+            }, 10);
+            
+            // 设置确认按钮的点击事件
+            document.getElementById('confirm-delete').onclick = function() {
+                deleteDialogueHistory(filename);
+            };
+        }
+        
+        // 删除对话历史
+        function deleteDialogueHistory(filename) {
+            fetch(`/api/dialogue_histories/${filename}`, {
+                method: 'DELETE'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`删除失败: ${response.status} ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                closeDeleteModal();
+                
+                // 显示成功通知
+                showNotification(data.message || '文件已成功删除', 'success');
+                
+                // 重新加载历史列表
+                loadDialogueHistories();
+            })
+            .catch(error => {
+                closeDeleteModal();
+                showNotification(`删除失败: ${error.message}`, 'error');
+            });
+        }
+        
+        // 通知功能
+        function showNotification(message, type = 'default') {
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            
+            if (type === 'success') {
+                notification.classList.add('notification-success');
+                notification.innerHTML = `
+                    <i class="ri-checkbox-circle-line notification-icon"></i>
+                    <span>${message}</span>
+                `;
+            } else if (type === 'error') {
+                notification.classList.add('notification-error');
+                notification.innerHTML = `
+                    <i class="ri-error-warning-line notification-icon"></i>
+                    <span>${message}</span>
+                `;
+            } else {
+                notification.innerHTML = `
+                    <i class="ri-information-line notification-icon"></i>
+                    <span>${message}</span>
+                `;
+            }
+            
+            document.body.appendChild(notification);
+            
+            // 显示通知
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 10);
+            
+            // 3秒后隐藏通知
+            setTimeout(() => {
+                notification.classList.remove('show');
+                
+                // 动画结束后删除元素
+                notification.addEventListener('transitionend', function() {
+                    if (notification.parentNode) {
+                        document.body.removeChild(notification);
+                    }
+                });
+            }, 3000);
+        }
+        
+        // 绑定刷新按钮
+        document.getElementById('refresh-history-btn').addEventListener('click', loadDialogueHistories);
+        
+        // 页面加载时获取历史列表
+        document.addEventListener('DOMContentLoaded', loadDialogueHistories);
+    </script>
+</body>
+</html>

@@ -10,7 +10,7 @@ VERSION_INFO = {
     "version": __version__,
     "build": __build__,
     "name": "RoundTable对话系统",
-    "description": "多代理对话和会议系统",
+    "description": "多专家对话和会议系统",
     "db_schema_version": "1.0",
     "api_version": "v1",
     "changelog": {
@@ -29,8 +29,8 @@ VERSION_INFO = {
         ],
         "1.0.0": [
             "初始版本",
-            "支持多代理对话",
-            "支持用户提问和代理回答",
+            "支持多专家对话",
+            "支持用户提问和专家回答",
             "支持WebSocket实时对话更新",
             "支持多种LLM API提供商"
         ]

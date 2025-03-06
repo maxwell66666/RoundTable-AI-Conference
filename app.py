@@ -1,17 +1,18 @@
 from fastapi import FastAPI, Request, Form, File, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse, JSONResponse
+
 import sqlite3
 import json
 from round_table import start_phase_discussion, user_intervene, get_agent_name_by_id
 from conference_organizer import (
     create_conference, start_conference, advance_phase, 
     end_phase, end_conference, get_conference, 
-    list_conferences, init_conference_db
+    list_conferences, init_conference_db, delete_conference
 )
 from agent_db import list_agents, init_agent_db
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 import concurrent.futures
 from typing import List, Dict, Any
@@ -19,6 +20,8 @@ from starlette.websockets import WebSocketState
 import threading
 from version import get_version, get_version_info
 from db_migrations import run_migrations
+import os
+import random
 
 app = FastAPI(title="RoundTable对话系统", version=get_version())
 
@@ -115,6 +118,69 @@ async def get_api_version():
     """返回API版本信息"""
     return VERSION_INFO
 
+# 获取所有对话历史文件列表
+@app.get("/api/dialogue_histories")
+async def list_dialogue_histories():
+    """返回所有对话历史文件的列表"""
+    try:
+        files = [f for f in os.listdir() if f.startswith('dialogue_history_') and f.endswith('.json')]
+        result = []
+        
+        for file in files:
+            # 从文件名解析会议ID和阶段
+            parts = file.replace('dialogue_history_', '').replace('.json', '').split('_')
+            if len(parts) >= 2:
+                conference_id = parts[0]
+                phase_id = parts[1]
+                
+                # 获取文件大小和修改时间
+                file_stats = os.stat(file)
+                size_kb = file_stats.st_size / 1024
+                mod_time = datetime.fromtimestamp(file_stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 尝试获取会议标题
+                conference_title = None
+                try:
+                    conference = get_conference(conference_id)
+                    if conference:
+                        conference_title = conference.title
+                except:
+                    pass
+                
+                result.append({
+                    "filename": file,
+                    "conference_id": conference_id,
+                    "phase_id": phase_id,
+                    "conference_title": conference_title,
+                    "size_kb": round(size_kb, 2),
+                    "modified": mod_time
+                })
+        
+        # 按修改时间倒序排序
+        result.sort(key=lambda x: x["modified"], reverse=True)
+        return result
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+# 删除对话历史文件
+@app.delete("/api/dialogue_histories/{filename}")
+async def delete_dialogue_history(filename: str):
+    """删除指定的对话历史文件"""
+    try:
+        # 安全检查：确保文件名以dialogue_history_开头并以.json结尾
+        if not (filename.startswith('dialogue_history_') and filename.endswith('.json')):
+            return JSONResponse(content={"error": "无效的文件名格式"}, status_code=400)
+        
+        # 检查文件是否存在
+        if not os.path.exists(filename):
+            return JSONResponse(content={"error": "文件不存在"}, status_code=404)
+        
+        # 删除文件
+        os.remove(filename)
+        return {"success": True, "message": f"文件 {filename} 已成功删除"}
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
 # WebSocket路由
 @app.websocket("/ws/{conference_id}")
 async def websocket_endpoint(websocket: WebSocket, conference_id: str):
@@ -151,55 +217,156 @@ async def websocket_endpoint(websocket: WebSocket, conference_id: str):
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     conferences = list_conferences()
+    # 按开始时间倒序排序，最近的会议排在前面
+    # 未开始的会议（start_time为None）排在最后
+    conferences = sorted(
+        conferences, 
+        key=lambda x: datetime.fromisoformat(x.start_time) if x.start_time else datetime.min, 
+        reverse=True
+    )
     agents = list_agents()
+    
+    # 为日历准备数据
+    today = datetime.now()
+    current_month = today.month
+    current_year = today.year
+    current_day = today.day
+    
+    # 生成活动统计数据
+    # 假设过去30天的活动数据
+    activity_data = []
+    for i in range(30, 0, -1):
+        date = today - timedelta(days=i)
+        # 统计每天的会议数量
+        day_conferences = [c for c in conferences if c.start_time and 
+                          datetime.fromisoformat(c.start_time).date() == date.date()]
+        activity_data.append({
+            "date": date.strftime("%m-%d"),
+            "value": len(day_conferences)
+        })
+    
+    # 为日历准备会议日期
+    conference_dates = []
+    for conf in conferences:
+        if conf.start_time:
+            conf_date = datetime.fromisoformat(conf.start_time).date()
+            conference_dates.append(conf_date.day)
+    
     return templates.TemplateResponse("index.html", {
+        "request": request, 
+        "conferences": conferences, 
+        "agents": agents,
+        "version": VERSION_INFO,
+        "current_month": current_month,
+        "current_year": current_year,
+        "current_day": current_day,
+        "activity_data": json.dumps(activity_data),
+        "conference_dates": conference_dates,
+        "now": today
+    })
+
+# 会议管理页面
+@app.get("/conferences", response_class=HTMLResponse)
+async def conferences_page(request: Request):
+    conferences = list_conferences()
+    # 按开始时间倒序排序，最近的会议排在前面
+    # 未开始的会议（start_time为None）排在最后
+    conferences = sorted(
+        conferences, 
+        key=lambda x: datetime.fromisoformat(x.start_time) if x.start_time else datetime.min, 
+        reverse=True
+    )
+    agents = list_agents()
+    return templates.TemplateResponse("conferences.html", {
         "request": request, 
         "conferences": conferences, 
         "agents": agents,
         "version": VERSION_INFO
     })
 
+# 对话历史管理页面
+@app.get("/dialogue_histories", response_class=HTMLResponse)
+async def dialogue_histories_page(request: Request):
+    return templates.TemplateResponse("dialogue_histories.html", {
+        "request": request,
+        "version": VERSION_INFO
+    })
+
+# 专家管理页面
+@app.get("/agent", response_class=HTMLResponse)
+async def agent_management_page(request: Request):
+    agents = list_agents()
+    return templates.TemplateResponse("agent_management.html", {
+        "request": request,
+        "agents": agents,
+        "version": VERSION_INFO
+    })
+
 # 启动新会议
 @app.post("/start_conference", response_class=HTMLResponse)
-async def start_new_conference(request: Request, agent_ids: str = Form(...)):
+async def start_new_conference(request: Request):
     try:
-        # 从表单数据获取议程
+        # 从表单数据获取信息
         form_data = await request.form()
-        agenda_text = form_data.get('agenda')
-        custom_title = form_data.get('conference_title', '').strip()
+        conference_title = form_data.get('conference_title', '').strip()
+        num_agents = form_data.get('num_agents', '5')
+        topic = form_data.get('topic', '').strip()
         
-        if not agenda_text:
-            raise ValueError("议程数据不能为空")
-            
-        try:
-            agenda = json.loads(agenda_text)
-        except json.JSONDecodeError:
-            raise ValueError("议程格式无效，请提供有效的JSON")
-            
-        # 验证议程文件格式
-        for phase in agenda:
-            if "topics" not in phase or not phase["topics"]:
-                raise ValueError("每个阶段必须包含非空的 topics 字段")
-                
-        # 生成会议标题：使用日期和首个主题
-        current_date = datetime.now().strftime("%Y-%m-%d")
-        main_topic = agenda[0]["topics"][0] if agenda and "topics" in agenda[0] and agenda[0]["topics"] else "未指定主题"
+        if not topic:
+            raise ValueError("讨论主题不能为空")
         
-        # 如果用户提供了标题，则使用用户的标题，否则生成标题
-        if custom_title:
-            title = custom_title
-        else:
-            title = f"{current_date} - {main_topic}"
-            
-        agent_ids_list = agent_ids.split(',')
+        # 根据用户输入的主题自动生成议程
+        agenda = [
+            {
+                "phase_name": "讨论阶段",
+                "topics": [topic],
+                "instructions": f"讨论关于'{topic}'的各种观点和见解"
+            },
+            {
+                "phase_name": "总结阶段",
+                "topics": ["总结前面的讨论"],
+                "instructions": "总结前面讨论的主要观点，并提出综合性结论"
+            }
+        ]
+        
+        # 获取适当数量的随机代理
+        agents = list_agents()
+        if len(agents) < int(num_agents):
+            raise ValueError(f"系统中只有{len(agents)}个专家可用，无法创建需要{num_agents}个专家的会议")
+        
+        # 随机选择指定数量的代理
+        selected_agents = random.sample(agents, int(num_agents))
+        agent_ids = [agent.agent_id for agent in selected_agents]
+        
+        # 生成会议ID
         conference_id = f"C{len(list_conferences()) + 1:03d}"
-        conference = create_conference(conference_id, title, agenda, agent_ids_list)
+        
+        # 如果用户没有提供标题，则生成标题
+        if not conference_title:
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            conference_title = f"{current_date} - {topic}"
+            
+        conference = create_conference(conference_id, conference_title, agenda, agent_ids)
         start_conference(conference_id)
-        return templates.TemplateResponse("conference.html", {"request": request, "conference": conference})
-    except json.JSONDecodeError:
-        return HTMLResponse("错误：议程格式无效，请提供有效的JSON", status_code=400)
+        
+        # 从数据库获取当前阶段的对话历史（与manage_conference保持一致）
+        conn = sqlite3.connect('conversations.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT agent_id, speech, timestamp FROM conversations WHERE conference_id = ? AND phase_id = ?', 
+                       (conference_id, conference.current_phase_index))
+        dialogue = [{"agent_id": row[0], "speech": row[1], "timestamp": row[2]} for row in cursor.fetchall()]
+        conn.close()
+        
+        return templates.TemplateResponse("conference.html", {
+            "request": request, 
+            "conference": conference,
+            "agents": agents,  # 添加所有代理
+            "dialogue": dialogue  # 添加对话历史
+        })
     except ValueError as e:
         return HTMLResponse(f"错误：{str(e)}", status_code=400)
+    except Exception as e:
+        return HTMLResponse(f"系统错误：{str(e)}", status_code=500)
 
 # 管理特定会议
 @app.get("/conference/{conference_id}", response_class=HTMLResponse)
@@ -273,6 +440,16 @@ async def monitor_dialogue_file(conference_id, phase_id):
             if len(dialogue_history) > last_count:
                 # 只处理新增的对话
                 for entry in dialogue_history[last_count:]:
+                    # 确保entry包含必要的字段
+                    if "agent_id" not in entry or "speech" not in entry:
+                        print(f"警告：对话记录缺少必要字段: {entry}")
+                        continue
+                    
+                    # 如果没有timestamp，添加当前时间
+                    if "timestamp" not in entry:
+                        entry["timestamp"] = datetime.now().isoformat()
+                        print(f"警告：对话记录缺少timestamp字段，已自动添加")
+                    
                     await save_dialogue_to_db(entry, conference_id, phase_id)
                 last_count = len(dialogue_history)
         except Exception as e:
@@ -313,7 +490,18 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
                         asyncio.get_event_loop().run_in_executor(pool, func, *args),
                         timeout=timeout
                     )
-                return {"success": True, "result": result}
+                    
+                # 处理不同类型的结果
+                if isinstance(result, bool):
+                    # 布尔值结果
+                    return {"success": result, "result": None}
+                elif isinstance(result, str) and (result.startswith("错误:") or result.startswith("讨论过程出错") or "失败" in result or "API" in result):
+                    # 字符串形式的错误信息
+                    return {"success": False, "error": result}
+                else:
+                    # 其他结果都视为成功
+                    return {"success": True, "result": result}
+                    
             except asyncio.TimeoutError:
                 return {"success": False, "error": "操作超时，API 可能暂时不可用"}
             except Exception as e:
@@ -354,8 +542,21 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
             monitor_task = asyncio.create_task(monitor_dialogue_file(conference_id, phase_id))
             dialogue_listeners[f"{conference_id}_{phase_id}"] = monitor_task
             
-            # 在后台处理讨论
-            asyncio.create_task(run_with_timeout(start_phase_discussion, conference_id, phase_id))
+            try:
+                # 执行讨论任务并等待结果
+                discussion_result = await run_with_timeout(start_phase_discussion, conference_id, phase_id)
+                if not discussion_result["success"]:
+                    return JSONResponse({
+                        "message": f"启动讨论失败: {discussion_result['error']}", 
+                        "success": False,
+                        "error_type": "API错误"
+                    }, status_code=500)
+            except Exception as e:
+                return JSONResponse({
+                    "message": f"启动讨论出错: {str(e)}", 
+                    "success": False,
+                    "error_type": "系统错误"
+                }, status_code=500)
             
         elif action == "interrupt":
             interrupt_result = await run_with_timeout(user_intervene, conference_id, phase_id, "interrupt")
@@ -371,7 +572,7 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
             # 增强参数验证
             if not agent_id:
                 return JSONResponse({
-                    "message": "错误：提问时必须提供代理ID", 
+                    "message": "错误：提问时必须提供专家ID", 
                     "success": False
                 }, status_code=400)
                 
@@ -381,18 +582,18 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
                     "success": False
                 }, status_code=400)
             
-            # 验证代理ID是否存在
+            # 验证专家ID是否存在
             agent = None
             try:
                 from agent_db import get_agent
                 agent = get_agent(agent_id)
                 if not agent:
                     return JSONResponse({
-                        "message": f"错误：代理ID '{agent_id}' 不存在", 
+                        "message": f"错误：专家ID '{agent_id}' 不存在", 
                         "success": False
                     }, status_code=400)
             except Exception as e:
-                print(f"验证代理时出错: {str(e)}")
+                print(f"验证专家时出错: {str(e)}")
                 # 即使验证失败也继续尝试，因为user_intervene会再次验证
                 
             question_result = await run_with_timeout(
@@ -401,7 +602,7 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
             
             if question_result["success"]:
                 dialogue_response = question_result["result"]
-                # 如果获取到代理名称，则在消息中显示
+                # 如果获取到专家名称，则在消息中显示
                 agent_name = get_agent_name_by_id(agent_id) if 'get_agent_name_by_id' in globals() else agent_id
                 
                 # 手动将回答添加到对话历史数据库并通过WebSocket发送
@@ -417,7 +618,7 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
                         cursor.execute('INSERT INTO conversations (conference_id, phase_id, agent_id, speech, timestamp) VALUES (?, ?, ?, ?, ?)',
                                       (conference_id, phase_id, "用户", user_question, timestamp))
                         
-                        # 保存代理回答
+                        # 保存专家回答
                         cursor.execute('INSERT INTO conversations (conference_id, phase_id, agent_id, speech, timestamp) VALUES (?, ?, ?, ?, ?)',
                                        (conference_id, phase_id, agent_id, dialogue_response, timestamp))
                         conn.commit()
@@ -432,7 +633,7 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
                         "timestamp": timestamp
                     }, conference_id)
                     
-                    # 通过WebSocket发送代理回答
+                    # 通过WebSocket发送专家回答
                     await manager.send_dialogue({
                         "agent_id": agent_id,
                         "agent_name": agent_name,
@@ -440,7 +641,7 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
                         "timestamp": timestamp
                     }, conference_id)
                 
-                message = f"已向代理 {agent_name} ({agent_id}) 提问，并收到回复"
+                message = f"已向专家 {agent_name} ({agent_id}) 提问，并收到回复"
             else:
                 return JSONResponse({
                     "message": f"提问失败: {question_result['error']}",
@@ -528,3 +729,20 @@ async def end_entire_conference(request: Request, conference_id: str):
         return await home(request)
     except Exception as e:
         return HTMLResponse(f"错误：{str(e)}", status_code=500)
+
+@app.delete("/api/conferences/{conference_id}")
+async def delete_conference_endpoint(conference_id: str):
+    try:
+        # 检查会议是否存在
+        conference = get_conference(conference_id)
+        if not conference:
+            return JSONResponse(status_code=404, 
+                              content={"error": f"找不到会议 ID: {conference_id}"})
+        
+        # 删除会议
+        delete_conference(conference_id)
+        
+        return {"message": f"会议 '{conference.title}' 已成功删除"}
+    except Exception as e:
+        return JSONResponse(status_code=500,
+                          content={"error": f"删除会议时出错: {str(e)}"})

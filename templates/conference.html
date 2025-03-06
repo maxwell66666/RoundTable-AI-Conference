@@ -4,162 +4,305 @@
     <meta charset="UTF-8">
     <title>{{ conference.title }}</title>
     <style>
+        :root {
+            --primary-color: #7b9099; /* 莫兰迪蓝 - 替代鲜亮的蓝色 */
+            --primary-dark: #5e7681; /* 莫兰迪深蓝 */
+            --secondary-color: #998e8a; /* 莫兰迪灰棕 */
+            --light-color: #f2f0ed; /* 米灰色 */
+            --dark-color: #35302e; /* 暗褐色 - 不纯黑 */
+            --success-color: #8ca5a0; /* 莫兰迪青绿 - 替代鲜亮的绿色 */
+            --danger-color: #bb8e83; /* 莫兰迪砖红 - 替代鲜亮的红色 */
+            --warning-color: #c9b18f; /* 莫兰迪杏色 - 替代鲜亮的黄色 */
+            --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+        }
+        
         body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
+            font-family: var(--font-sans);
+            line-height: 1.5;
             max-width: 1000px;
             margin: 0 auto;
             padding: 20px;
+            background-color: #f9f7f4; /* 更温暖的奶白色背景 */
+            color: var(--dark-color);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
+        
         ul {
             list-style-type: none;
             padding: 0;
         }
+        
         li {
             margin-bottom: 15px;
-            padding: 15px;
-            border-radius: 8px;
-            background-color: #f8f9fa;
-            border-left: 3px solid #6c757d;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 18px;
+            border-radius: 8px; /* 稍微减小圆角 */
+            background-color: #f2f0ed; /* 更柔和的背景色 */
+            border-left: 2px solid var(--secondary-color);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+            transition: transform 0.2s, box-shadow 0.2s;
         }
+        
+        li:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        }
+        
         .hidden {
             display: none;
         }
+        
         #status-message {
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 10px;
+            font-weight: 500;
         }
-        .success { background-color: #dff0d8; }
-        .error { background-color: #f2dede; }
-        .warning { background-color: #fcf8e3; }
+        
+        .success { 
+            background-color: rgba(140, 165, 160, 0.15); 
+            color: #6a8883; /* 更深的莫兰迪绿 */
+        }
+        
+        .error { 
+            background-color: rgba(187, 142, 131, 0.15); 
+            color: #a67769; /* 更深的莫兰迪红 */
+        }
+        
+        .warning { 
+            background-color: rgba(201, 177, 143, 0.15); 
+            color: #b09a76; /* 更深的莫兰迪黄 */
+        }
+        
         .loading-spinner {
             display: inline-block;
             width: 20px;
             height: 20px;
-            border: 3px solid rgba(0,0,0,0.1);
+            border: 2px solid rgba(0,0,0,0.1);
             border-radius: 50%;
-            border-top-color: #007bff;
-            animation: spin 1s ease-in-out infinite;
+            border-top-color: var(--primary-color);
+            animation: spin 1s linear infinite;
             margin-right: 10px;
         }
+        
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+        
         .retry-btn {
             margin-left: 10px;
-            padding: 5px 10px;
-            background-color: #f0ad4e;
+            padding: 6px 12px;
+            background-color: var(--warning-color);
             border: none;
-            border-radius: 4px;
+            border-radius: 20px;
             cursor: pointer;
+            font-size: 0.85rem;
+            color: white;
+            font-weight: 500;
+            transition: all 0.2s;
         }
+        
+        .retry-btn:hover {
+            background-color: #b09a76;
+            transform: translateY(-1px);
+        }
+        
         .agent-name {
-            font-weight: bold;
-            color: #0d6efd;
+            font-weight: 600;
+            color: var(--primary-color);
         }
+        
         .user-name {
-            font-weight: bold;
-            color: #198754;
+            font-weight: 600;
+            color: var(--success-color);
         }
+        
         .timestamp {
-            font-size: 0.8em;
-            color: #6c757d;
+            font-size: 0.85rem;
+            color: var(--secondary-color);
             margin-left: 10px;
             display: block;
             text-align: right;
             margin-top: 5px;
         }
+        
         .dialogue-enter {
-            animation: fadeIn 0.5s ease-in-out;
+            animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
         }
+        
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
+        
         .form-section {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
+            background-color: #f2f0ed;
+            padding: 24px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.03);
         }
+        
         .action-btn {
-            padding: 8px 15px;
+            padding: 10px 18px;
             border: none;
-            border-radius: 4px;
+            border-radius: 20px;
             cursor: pointer;
-            background-color: #0d6efd;
+            background-color: var(--primary-color);
             color: white;
             margin-right: 10px;
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: all 0.2s;
         }
+        
         .action-btn:hover {
-            background-color: #0b5ed7;
+            background-color: var(--primary-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
+        
         .end-btn {
-            background-color: #dc3545;
+            background-color: var(--danger-color);
         }
+        
         .end-btn:hover {
-            background-color: #bb2d3b;
+            background-color: #a67769;
         }
+        
         select, input {
-            padding: 8px;
-            border: 1px solid #ced4da;
-            border-radius: 4px;
-            margin-bottom: 10px;
+            padding: 12px 15px;
+            border: 1px solid rgba(0,0,0,0.1);
+            border-radius: 8px;
+            margin-bottom: 15px;
+            width: 100%;
+            font-size: 0.95rem;
+            color: var(--dark-color);
+            transition: all 0.2s;
+            font-family: var(--font-sans);
         }
+        
+        select:focus, input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(123, 144, 153, 0.15);
+        }
+        
         /* 新增样式 */
         .speech-content {
-            margin-top: 5px;
-            line-height: 1.5;
+            margin-top: 8px;
+            line-height: 1.6;
         }
+        
         .speech-content p {
             margin: 10px 0;
         }
+        
         .user-question {
-            background-color: #e7f5ee;
-            border-left: 3px solid #198754;
+            background-color: rgba(140, 165, 160, 0.1);
+            border-left: 2px solid var(--success-color);
         }
+        
         .user-question .speech-content {
             font-style: italic;
         }
+        
         #dialogue-list {
             max-width: 900px;
             margin: 0 auto;
         }
+        
         .conference-header {
-            background-color: #f0f7ff;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            border-left: 4px solid #0d6efd;
+            background-color: rgba(123, 144, 153, 0.08);
+            padding: 24px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            border-left: 2px solid var(--primary-color);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.03);
         }
+        
+        .conference-header h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--dark-color);
+        }
+        
         .conference-meta {
-            font-size: 0.9em;
-            color: #6c757d;
-            margin: 5px 0;
+            font-size: 0.95rem;
+            color: var(--secondary-color);
+            margin: 8px 0;
         }
+        
         .home-link {
             display: inline-block;
             margin-bottom: 20px;
-            color: #0d6efd;
+            color: var(--primary-color);
             text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s;
         }
+        
         .home-link:hover {
-            text-decoration: underline;
+            color: var(--primary-dark);
         }
+        
         .phase-info {
-            background-color: #f8f9fa;
-            padding: 10px 15px;
-            border-radius: 5px;
-            margin-bottom: 15px;
+            background-color: rgba(140, 165, 160, 0.08);
+            padding: 15px 18px;
+            border-radius: 8px;
+            margin-bottom: 24px;
             display: flex;
             justify-content: space-between;
-            border-left: 3px solid #28a745;
+            align-items: center;
+            border-left: 2px solid var(--success-color);
         }
+        
         .phase-number {
-            font-weight: bold;
-            color: #28a745;
+            font-weight: 600;
+            color: #6a8883; /* 更深的莫兰迪绿 */
+        }
+        
+        .sidebar {
+            background-color: #f2f0ed;
+            padding: 24px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+        }
+        
+        .sidebar-header {
+            font-weight: 600;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+            color: var(--dark-color);
+        }
+        
+        .sidebar-section {
+            margin-bottom: 20px;
+        }
+        
+        .participant-list {
+            margin-left: 20px;
+            color: var(--secondary-color);
+        }
+        
+        h3 {
+            font-weight: 600;
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            color: var(--dark-color);
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--dark-color);
+        }
+        
+        .dialogue-container {
+            margin-bottom: 30px;
         }
     </style>
 </head>
@@ -196,7 +339,7 @@
     </div>
     
     <div id="status-message" class="hidden"></div>
-    <div id="dialogue-container">
+    <div class="dialogue-container">
         <h3>对话历史</h3>
         <ul id="dialogue-list">
             {% for entry in dialogue %}
@@ -243,9 +386,9 @@
                 <option value="question">提问</option>
             </select><br>
             <div id="question-fields" class="hidden">
-                <label>选择代理：</label>
+                <label>选择专家：</label>
                 <select name="agent_id" id="agent_id" required>
-                    <option value="">-- 请选择代理 --</option>
+                    <option value="">-- 请选择专家 --</option>
                     {% for agent in agents %}
                     <option value="{{ agent.agent_id }}">{{ agent.name }} ({{ agent.agent_id }})</option>
                     {% endfor %}
@@ -264,6 +407,38 @@
         <form action="/conference/{{ conference.conference_id }}/end" method="post" style="display: inline;">
             <button type="submit" class="action-btn end-btn">结束会议</button>
         </form>
+    </div>
+    <div class="sidebar">
+        <!-- 侧边栏标题 -->
+        <div class="sidebar-header">
+            {{ conference.title }}
+            <div class="conference-meta">ID: {{ conference.conference_id }}</div>
+        </div>
+        
+        <!-- 会议信息 -->
+        <div class="sidebar-section">
+            <div class="sidebar-header" style="font-size: 1rem;">会议信息</div>
+            <div class="conference-meta">
+                当前阶段: {{ conference.current_phase_index + 1 }} / {{ conference.agenda|length }}
+            </div>
+            <div class="conference-meta">
+                主题: {{ conference.agenda[conference.current_phase_index].topics|join(', ') }}
+            </div>
+        </div>
+        
+        <!-- 参与专家 -->
+        <div class="sidebar-section">
+            <div class="sidebar-header" style="font-size: 1rem;">参与专家</div>
+            <div class="participant-list">
+                {% for agent_id in conference.participant_agent_ids %}
+                {% for agent in agents %}
+                {% if agent.agent_id == agent_id %}
+                {{ agent.name }}{% if not loop.last %}, {% endif %}
+                {% endif %}
+                {% endfor %}
+                {% endfor %}
+            </div>
+        </div>
     </div>
     <script>
         // WebSocket连接
@@ -431,7 +606,7 @@
                 const question = formData.get("question");
                 
                 if (!agentId || agentId.trim() === "") {
-                    statusMessage.textContent = "错误：提问时必须选择代理";
+                    statusMessage.textContent = "错误：提问时必须选择专家";
                     statusMessage.className = "error";
                     statusMessage.classList.remove("hidden");
                     return;
@@ -490,6 +665,14 @@
                             statusMessage.innerHTML = `API 调用超时，正在重试 (${retryCount}/${maxRetries})... <button class="retry-btn" onclick="retryLastOperation()">手动重试</button>`;
                             statusMessage.className = "warning";
                             setTimeout(attemptRequest, retryDelay);
+                            return;
+                        }
+                        
+                        // 处理API错误信息，增加更详细的错误提示
+                        if (result.error_type === "API错误" || (result.message && result.message.includes("API"))) {
+                            statusMessage.innerHTML = `<strong>API调用失败:</strong> ${result.message || "未知错误"} <button class="retry-btn" onclick="retryLastOperation()">重试</button>`;
+                            statusMessage.className = "error";
+                            submitBtn.disabled = false;
                             return;
                         }
                         

@@ -2,158 +2,558 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>会议管理系统</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .conference-list {
-            margin-bottom: 30px;
-        }
-        .conference-item {
-            margin-bottom: 8px;
-            padding: 10px;
-            border-left: 3px solid #0d6efd;
-            background-color: #f8f9fa;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-        input[type="text"], select, textarea {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ced4da;
-            border-radius: 4px;
-        }
-        .btn {
-            padding: 8px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            background-color: #0d6efd;
-            color: white;
-        }
-        .btn:hover {
-            background-color: #0b5ed7;
-        }
-        select[multiple] {
-            height: 150px;
-        }
-        .conference-date {
-            font-size: 0.8em;
-            color: #6c757d;
-        }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RoundTable会议系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/main.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
 </head>
 <body>
-    <h1>会议管理系统</h1>
-    <div class="conference-list">
-        <h2>现有会议</h2>
-        <ul>
-            {% for conf in conferences %}
-            <li class="conference-item">
-                <a href="/conference/{{ conf.conference_id }}">{{ conf.title }}</a>
-                {% if conf.start_time %}
-                <div class="conference-date">开始于: {{ conf.start_time.split('T')[0] }} {{ conf.start_time.split('T')[1].split('.')[0] }}</div>
-                {% endif %}
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
-    <h2>启动新会议</h2>
-    示例：上传议程文件（JSON格式），例如：
-    <pre>
-    [
-      {
-        "phase_type": "Topic Discussion",
-        "topics": ["AI Ethics"],
-        "duration": 30
-      },
-      {
-        "phase_type": "Expert Sharing",
-        "topics": ["Machine Learning Applications"],
-        "duration": 45
-      }
-    ]
-    </pre>
-    <form id="conference-form" action="/start_conference" method="post">
-        <div class="form-group">
-            <label for="conference_title">会议标题（可选，留空将使用日期+主题）：</label>
-            <input type="text" id="conference_title" name="conference_title" placeholder="例如：产品战略研讨会">
-        </div>
-        <div class="form-group">
-            <label for="agenda-editor">创建新议程：</label>
-            <textarea id="agenda-editor" name="agenda" rows="10" cols="50">[
-  {
-    "phase_type": "主题讨论",
-    "topics": ["AI伦理与隐私"],
-    "duration": 30
-  },
-  {
-    "phase_type": "专家分享",
-    "topics": ["AI监管框架"],
-    "duration": 45
-  }
-]</textarea>
-            <button type="button" class="btn" onclick="validateJSON()">验证JSON</button>
-        </div>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>RoundTable</h1>
+            </div>
+            <div class="sidebar-nav">
+                <a href="/" class="nav-item active">
+                    <i class="ri-dashboard-line"></i>
+                    <span>首页</span>
+                </a>
+                <a href="/conferences" class="nav-item">
+                    <i class="ri-calendar-event-line"></i>
+                    <span>会议管理</span>
+                </a>
+                <a href="/dialogue_histories" class="nav-item">
+                    <i class="ri-message-3-line"></i>
+                    <span>对话历史</span>
+                </a>
+                <a href="/agent" class="nav-item">
+                    <i class="ri-user-line"></i>
+                    <span>专家管理</span>
+                </a>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">系统</div>
+                    <a href="#" class="nav-item">
+                        <i class="ri-settings-3-line"></i>
+                        <span>系统设置</span>
+                    </a>
+                    <a href="https://github.com/yourusername/RoundTable" target="_blank" class="nav-item">
+                        <i class="ri-github-line"></i>
+                        <span>文档</span>
+                    </a>
+                </div>
+            </div>
+            <div class="sidebar-footer">
+                版本 {{ version.version }}
+            </div>
+        </aside>
         
-        <div class="form-group">
-            <label for="agent_ids">选择参与代理：</label>
-            <select multiple name="agent_ids_select" id="agent_ids" required>
-                {% for agent in agents %}
-                <option value="{{ agent.agent_id }}">{{ agent.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <button type="submit" class="btn" onclick="return prepareSubmit()">启动会议</button>
-    </form>
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <button class="sidebar-toggle" id="sidebar-toggle">
+                <i class="ri-menu-line"></i>
+            </button>
+            <div class="header-title">控制面板</div>
+            <div class="header-actions">
+                <button class="btn btn-sm" onclick="window.location.href='/conferences'">
+                    <i class="ri-add-line btn-icon"></i>
+                    <span>创建会议</span>
+                </button>
+            </div>
+        </header>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">欢迎使用 RoundTable</h1>
+                <p class="page-subtitle">一个基于多专家的智能对话和会议系统，支持多种LLM API提供商</p>
+            </div>
+            
+            <!-- 统计卡片 -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div class="stat-title">进行中的会议</div>
+                        <div class="stat-icon">
+                            <i class="ri-team-line"></i>
+                        </div>
+                    </div>
+                    <div class="stat-value">{{ conferences|length }}</div>
+                    <a href="/conferences" class="stat-link">
+                        <span>查看所有会议</span>
+                        <i class="ri-arrow-right-s-line"></i>
+                    </a>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div class="stat-title">可用专家</div>
+                        <div class="stat-icon" style="background-color: rgba(164, 157, 146, 0.1); color: var(--secondary-color);">
+                            <i class="ri-user-line"></i>
+                        </div>
+                    </div>
+                    <div class="stat-value">{{ agents|length }}</div>
+                    <a href="/agent" class="stat-link" style="color: var(--secondary-color);">
+                        <span>管理专家</span>
+                        <i class="ri-arrow-right-s-line"></i>
+                    </a>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div class="stat-title">活跃阶段数</div>
+                        <div class="stat-icon" style="background-color: rgba(142, 158, 130, 0.1); color: var(--success-color);">
+                            <i class="ri-focus-3-line"></i>
+                        </div>
+                    </div>
+                    {% set phase_count = namespace(total=0) %}
+                    {% for conf in conferences %}
+                        {% set phase_count.total = phase_count.total + conf.agenda|length %}
+                    {% endfor %}
+                    <div class="stat-value">{{ phase_count.total }}</div>
+                    <a href="/conferences" class="stat-link" style="color: var(--success-color);">
+                        <span>会议详情</span>
+                        <i class="ri-arrow-right-s-line"></i>
+                    </a>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div class="stat-title">系统版本</div>
+                        <div class="stat-icon" style="background-color: rgba(165, 127, 120, 0.1); color: var(--danger-color);">
+                            <i class="ri-information-line"></i>
+                        </div>
+                    </div>
+                    <div class="stat-value">{{ version.version }}</div>
+                    <a href="#" class="stat-link" style="color: var(--danger-color);">
+                        <span>查看更新</span>
+                        <i class="ri-arrow-right-s-line"></i>
+                    </a>
+                </div>
+            </div>
+            
+            <!-- 主内容区网格 -->
+            <div class="grid" style="grid-template-columns: 2fr 1fr;">
+                <!-- 左侧内容 -->
+                <div>
+                    <!-- 最近会议卡片 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title">最近会议</h2>
+                            <a href="/conferences" class="stat-link">查看全部</a>
+                        </div>
+                        <div class="card-body">
+                            {% if conferences %}
+                                <div class="animate-fade-in">
+                                    {% for conf in conferences[:3] %}
+                                    <div class="flex items-center p-4 bg-light hover:bg-gray-100 rounded-lg mb-3" style="display: flex; align-items: center; padding: 16px; border-radius: 8px; background-color: rgba(0,0,0,0.02); margin-bottom: 12px;">
+                                        <div style="width: 48px; height: 48px; background-color: var(--primary-color); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; margin-right: 16px;">
+                                            <i class="ri-team-line" style="font-size: 24px;"></i>
+                                        </div>
+                                        <div style="flex: 1;">
+                                            <h3 style="margin: 0 0 4px 0; font-weight: 500; font-size: 1rem;">{{ conf.title }}</h3>
+                                            <div style="font-size: 0.85rem; color: var(--text-light);">
+                                                <span><i class="ri-time-line" style="margin-right: 4px;"></i> 阶段 {{ conf.current_phase_index + 1 }}/{{ conf.agenda|length }}</span>
+                                                <span style="margin: 0 8px;">·</span>
+                                                <span>{{ conf.participant_agent_ids|length }} 位专家</span>
+                                                {% if conf.start_time %}
+                                                <span style="margin: 0 8px;">·</span>
+                                                <span>{{ conf.start_time.split('T')[0] }}</span>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                        <a href="/conference/{{ conf.conference_id }}" class="btn btn-sm" style="white-space: nowrap;">
+                                            进入会议
+                                        </a>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">
+                                        <i class="ri-calendar-line"></i>
+                                    </div>
+                                    <h3 class="empty-state-title">当前没有进行中的会议</h3>
+                                    <p class="empty-state-description">创建您的第一个会议，开始专家讨论</p>
+                                    <button onclick="window.location.href='/conferences'" class="btn">
+                                        <i class="ri-add-line btn-icon"></i>
+                                        创建新会议
+                                    </button>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <!-- 快速创建会议 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title">快速创建会议</h2>
+                        </div>
+                        <div class="card-body">
+                            <form id="quick-conference-form" action="/start_conference" method="post">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                    <div class="form-group">
+                                        <label for="conference_title">会议标题</label>
+                                        <input type="text" id="conference_title" name="conference_title" placeholder="例如：产品战略研讨会">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="num_agents">专家数量</label>
+                                        <select id="num_agents" name="num_agents">
+                                            <option value="3">3 位专家</option>
+                                            <option value="4">4 位专家</option>
+                                            <option value="5" selected>5 位专家</option>
+                                            <option value="6">6 位专家</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="topic">讨论主题</label>
+                                    <textarea id="topic" name="topic" rows="2" placeholder="例如：探讨人工智能在医疗领域的应用前景"></textarea>
+                                </div>
+                                
+                                <div style="text-align: right;">
+                                    <button type="submit" class="btn">
+                                        <i class="ri-add-line btn-icon"></i>
+                                        创建会议
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 右侧内容 -->
+                <div>
+                    <!-- 活动图表 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title">会议活动趋势</h2>
+                        </div>
+                        <div class="card-body">
+                            <div id="activityChart" style="height: 250px;"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- 日历 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title">日历</h2>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <button class="calendar-nav-prev" style="background: none; border: none; cursor: pointer; color: var(--text-medium);">
+                                    <i class="ri-arrow-left-s-line"></i>
+                                </button>
+                                <span class="calendar-month" style="font-weight: 500;">{{ now.strftime('%Y年%m月') }}</span>
+                                <button class="calendar-nav-next" style="background: none; border: none; cursor: pointer; color: var(--text-medium);">
+                                    <i class="ri-arrow-right-s-line"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div style="display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; margin-bottom: 10px;">
+                                <div style="color: var(--text-light); font-size: 0.8rem; font-weight: 500;">日</div>
+                                <div style="color: var(--text-light); font-size: 0.8rem; font-weight: 500;">一</div>
+                                <div style="color: var(--text-light); font-size: 0.8rem; font-weight: 500;">二</div>
+                                <div style="color: var(--text-light); font-size: 0.8rem; font-weight: 500;">三</div>
+                                <div style="color: var(--text-light); font-size: 0.8rem; font-weight: 500;">四</div>
+                                <div style="color: var(--text-light); font-size: 0.8rem; font-weight: 500;">五</div>
+                                <div style="color: var(--text-light); font-size: 0.8rem; font-weight: 500;">六</div>
+                            </div>
+                            <div class="calendar-grid" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;">
+                                <!-- 日历内容将由JavaScript填充 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
     
     <script>
-    function validateJSON() {
-        const editor = document.getElementById('agenda-editor');
-        try {
-            const agenda = JSON.parse(editor.value);
-            if (!Array.isArray(agenda)) throw new Error('议程必须是数组格式');
-            agenda.forEach((phase, index) => {
-                if (!phase.phase_type) throw new Error(`第${index + 1}阶段缺少phase_type`);
-                if (!phase.topics || !phase.topics.length) throw new Error(`第${index + 1}阶段缺少topics`);
+        // 侧边栏切换
+        document.getElementById('sidebar-toggle').addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+            document.querySelector('.main-content').classList.toggle('expanded');
+            document.querySelector('.header').classList.toggle('expanded');
+        });
+        
+        // 图表初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化活动图表
+            const chartContainer = document.getElementById('activityChart');
+            if (chartContainer) {
+                const activityChart = echarts.init(chartContainer);
+                
+                // 获取后端传递的活动数据
+                const activityData = JSON.parse('{{ activity_data|safe }}');
+                
+                const dates = activityData.map(item => item.date);
+                const values = activityData.map(item => item.value);
+                
+                const option = {
+                    animation: true,
+                    tooltip: {
+                        trigger: 'axis',
+                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                        borderColor: '#e5e7eb',
+                        textStyle: {
+                            color: '#2d333a'
+                        }
+                    },
+                    grid: {
+                        left: '0',
+                        right: '10',
+                        top: '10',
+                        bottom: '0',
+                        containLabel: true
+                    },
+                    xAxis: {
+                        type: 'category',
+                        boundaryGap: false,
+                        data: dates,
+                        axisLine: {
+                            lineStyle: {
+                                color: '#e5e7eb'
+                            }
+                        },
+                        axisLabel: {
+                            color: '#95a2b1',
+                            fontSize: 11
+                        }
+                    },
+                    yAxis: {
+                        type: 'value',
+                        axisLine: {
+                            show: false
+                        },
+                        axisLabel: {
+                            color: '#95a2b1',
+                            fontSize: 11
+                        },
+                        splitLine: {
+                            lineStyle: {
+                                color: '#f0f0f0'
+                            }
+                        }
+                    },
+                    series: [
+                        {
+                            name: '会议活动',
+                            type: 'line',
+                            smooth: true,
+                            data: values,
+                            itemStyle: {
+                                color: '#445d6e'
+                            },
+                            areaStyle: {
+                                color: {
+                                    type: 'linear',
+                                    x: 0,
+                                    y: 0,
+                                    x2: 0,
+                                    y2: 1,
+                                    colorStops: [{
+                                        offset: 0,
+                                        color: 'rgba(68, 93, 110, 0.25)'
+                                    }, {
+                                        offset: 1,
+                                        color: 'rgba(68, 93, 110, 0.05)'
+                                    }]
+                                }
+                            },
+                            showSymbol: false,
+                            emphasis: {
+                                focus: 'series'
+                            }
+                        }
+                    ]
+                };
+                activityChart.setOption(option);
+                
+                // 响应窗口大小变化
+                window.addEventListener('resize', function() {
+                    activityChart.resize();
+                });
+            }
+            
+            // 初始化日历
+            initCalendar();
+        });
+        
+        // 初始化日历功能
+        function initCalendar() {
+            const calendarGrid = document.querySelector('.calendar-grid');
+            const calendarMonth = document.querySelector('.calendar-month');
+            const prevButton = document.querySelector('.calendar-nav-prev');
+            const nextButton = document.querySelector('.calendar-nav-next');
+            
+            // 获取后端传递的数据
+            let currentMonth = parseInt('{{ current_month }}');
+            let currentYear = parseInt('{{ current_year }}');
+            let currentDay = parseInt('{{ current_day }}');
+            const conferenceEvents = JSON.parse('{{ conference_dates|tojson }}');
+            
+            // 渲染日历
+            function renderCalendar(month, year) {
+                calendarMonth.textContent = `${year}年${month}月`;
+                
+                // 清空日历
+                calendarGrid.innerHTML = '';
+                
+                // 获取当月第一天是星期几
+                const firstDay = new Date(year, month - 1, 1).getDay();
+                
+                // 获取当月天数
+                const daysInMonth = new Date(year, month, 0).getDate();
+                
+                // 获取上个月的天数
+                const daysInLastMonth = new Date(year, month - 1, 0).getDate();
+                
+                // 添加上个月的日期
+                for (let i = 0; i < firstDay; i++) {
+                    const day = daysInLastMonth - firstDay + i + 1;
+                    const dayEl = document.createElement('div');
+                    dayEl.style.aspectRatio = '1';
+                    dayEl.style.display = 'flex';
+                    dayEl.style.alignItems = 'center';
+                    dayEl.style.justifyContent = 'center';
+                    dayEl.style.color = '#ccc';
+                    dayEl.style.fontSize = '0.9rem';
+                    dayEl.textContent = day;
+                    calendarGrid.appendChild(dayEl);
+                }
+                
+                // 添加当月的日期
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const dayEl = document.createElement('div');
+                    dayEl.style.aspectRatio = '1';
+                    dayEl.style.display = 'flex';
+                    dayEl.style.alignItems = 'center';
+                    dayEl.style.justifyContent = 'center';
+                    dayEl.style.fontSize = '0.9rem';
+                    dayEl.style.cursor = 'pointer';
+                    dayEl.style.position = 'relative';
+                    dayEl.style.borderRadius = '6px';
+                    
+                    // 标记今天
+                    if (i === currentDay && month === parseInt('{{ current_month }}') && year === parseInt('{{ current_year }}')) {
+                        dayEl.style.backgroundColor = 'rgba(68, 93, 110, 0.15)';
+                        dayEl.style.color = 'var(--primary-color)';
+                        dayEl.style.fontWeight = '600';
+                    }
+                    
+                    // 标记有会议的日期
+                    if (conferenceEvents.includes(i) && month === parseInt('{{ current_month }}') && year === parseInt('{{ current_year }}')) {
+                        dayEl.style.color = 'var(--primary-color)';
+                        dayEl.style.fontWeight = '500';
+                        
+                        // 添加小点标记
+                        const dotEl = document.createElement('div');
+                        dotEl.style.position = 'absolute';
+                        dotEl.style.bottom = '4px';
+                        dotEl.style.left = '50%';
+                        dotEl.style.transform = 'translateX(-50%)';
+                        dotEl.style.width = '4px';
+                        dotEl.style.height = '4px';
+                        dotEl.style.borderRadius = '50%';
+                        dotEl.style.backgroundColor = 'var(--primary-color)';
+                        dayEl.appendChild(dotEl);
+                    }
+                    
+                    dayEl.textContent = i;
+                    calendarGrid.appendChild(dayEl);
+                }
+                
+                // 添加下个月的日期来填充网格
+                const daysToAdd = 7 - (firstDay + daysInMonth) % 7;
+                if (daysToAdd < 7) {
+                    for (let i = 1; i <= daysToAdd; i++) {
+                        const dayEl = document.createElement('div');
+                        dayEl.style.aspectRatio = '1';
+                        dayEl.style.display = 'flex';
+                        dayEl.style.alignItems = 'center';
+                        dayEl.style.justifyContent = 'center';
+                        dayEl.style.color = '#ccc';
+                        dayEl.style.fontSize = '0.9rem';
+                        dayEl.textContent = i;
+                        calendarGrid.appendChild(dayEl);
+                    }
+                }
+            }
+            
+            // 初始渲染
+            renderCalendar(currentMonth, currentYear);
+            
+            // 前一个月按钮
+            prevButton.addEventListener('click', function() {
+                currentMonth--;
+                if (currentMonth < 1) {
+                    currentMonth = 12;
+                    currentYear--;
+                }
+                renderCalendar(currentMonth, currentYear);
             });
-            alert('议程格式验证成功！');
-            return true;
-        } catch (e) {
-            alert('议程格式错误：' + e.message);
-            return false;
-        }
-    }
-
-    function prepareSubmit() {
-        const select = document.getElementById('agent_ids');
-        const selectedAgents = Array.from(select.selectedOptions).map(option => option.value);
-        if (selectedAgents.length === 0) {
-            alert('请选择至少一个代理');
-            return false;
+            
+            // 下一个月按钮
+            nextButton.addEventListener('click', function() {
+                currentMonth++;
+                if (currentMonth > 12) {
+                    currentMonth = 1;
+                    currentYear++;
+                }
+                renderCalendar(currentMonth, currentYear);
+            });
         }
         
-        // 创建一个隐藏字段用于存储逗号分隔的代理ID
-        const form = document.getElementById('conference-form');
-        const hiddenInput = document.createElement('input');
-        hiddenInput.type = 'hidden';
-        hiddenInput.name = 'agent_ids';
-        hiddenInput.value = selectedAgents.join(',');
-        form.appendChild(hiddenInput);
-        
-        return validateJSON();
-    }
+        // 通知功能
+        function showNotification(message, type = 'default') {
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            
+            if (type === 'success') {
+                notification.classList.add('notification-success');
+                notification.innerHTML = `
+                    <i class="ri-checkbox-circle-line notification-icon"></i>
+                    <span>${message}</span>
+                `;
+            } else if (type === 'error') {
+                notification.classList.add('notification-error');
+                notification.innerHTML = `
+                    <i class="ri-error-warning-line notification-icon"></i>
+                    <span>${message}</span>
+                `;
+            } else {
+                notification.innerHTML = `
+                    <i class="ri-information-line notification-icon"></i>
+                    <span>${message}</span>
+                `;
+            }
+            
+            document.body.appendChild(notification);
+            
+            // 显示通知
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 10);
+            
+            // 3秒后隐藏通知
+            setTimeout(() => {
+                notification.classList.remove('show');
+                
+                // 动画结束后删除元素
+                notification.addEventListener('transitionend', function() {
+                    if (notification.parentNode) {
+                        document.body.removeChild(notification);
+                    }
+                });
+            }, 3000);
+        }
     </script>
 </body>
 </html>

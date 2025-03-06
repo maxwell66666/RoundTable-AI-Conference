@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>会议管理 - RoundTable会议系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/main.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>RoundTable</h1>
+            </div>
+            <div class="sidebar-nav">
+                <a href="/" class="nav-item">
+                    <i class="ri-dashboard-line"></i>
+                    <span>首页</span>
+                </a>
+                <a href="/conferences" class="nav-item active">
+                    <i class="ri-calendar-event-line"></i>
+                    <span>会议管理</span>
+                </a>
+                <a href="/dialogue_histories" class="nav-item">
+                    <i class="ri-message-3-line"></i>
+                    <span>对话历史</span>
+                </a>
+                <a href="/agent" class="nav-item">
+                    <i class="ri-user-line"></i>
+                    <span>专家管理</span>
+                </a>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">系统</div>
+                    <a href="#" class="nav-item">
+                        <i class="ri-settings-3-line"></i>
+                        <span>系统设置</span>
+                    </a>
+                    <a href="https://github.com/yourusername/RoundTable" target="_blank" class="nav-item">
+                        <i class="ri-github-line"></i>
+                        <span>文档</span>
+                    </a>
+                </div>
+            </div>
+            <div class="sidebar-footer">
+                版本 {{ version.version }}
+            </div>
+        </aside>
+        
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <button class="sidebar-toggle" id="sidebar-toggle">
+                <i class="ri-menu-line"></i>
+            </button>
+            <div class="header-title">会议管理</div>
+            <div class="header-actions">
+                <button class="btn btn-sm" id="create-conference-btn">
+                    <i class="ri-add-line btn-icon"></i>
+                    <span>创建会议</span>
+                </button>
+            </div>
+        </header>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">会议管理</h1>
+                <p class="page-subtitle">查看并管理所有RoundTable会议，包括进行中和已结束的会议。</p>
+            </div>
+            
+            <!-- 会议卡片网格 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">所有会议</h2>
+                </div>
+                <div class="card-body">
+                    {% if conferences %}
+                        <div class="grid">
+                            {% for conf in conferences %}
+                            <div class="conference-card animate-fade-in">
+                                <div class="conference-card-header">
+                                    {{ conf.title }}
+                                </div>
+                                <div class="conference-card-body">
+                                    <div class="conference-meta">
+                                        <span><i class="ri-hashtag-line"></i> {{ conf.conference_id }}</span>
+                                        <span><i class="ri-stack-line"></i> 阶段 {{ conf.current_phase_index + 1 }}/{{ conf.agenda|length }}</span>
+                                    </div>
+                                    <div class="conference-meta">
+                                        <span><i class="ri-user-line"></i> {{ conf.participant_agent_ids|length }} 位专家</span>
+                                    </div>
+                                    <div class="conference-status {% if conf.end_time %}completed{% else %}active{% endif %}">
+                                        {% if conf.end_time %}已结束{% else %}进行中{% endif %}
+                                    </div>
+                                    <div class="card-actions">
+                                        <a href="/conference/{{ conf.conference_id }}" class="btn">
+                                            <i class="ri-login-box-line btn-icon"></i>
+                                            进入会议
+                                        </a>
+                                        <button class="btn btn-danger btn-sm" onclick="confirmDeleteConference('{{ conf.conference_id }}', '{{ conf.title }}', this)">
+                                            <i class="ri-delete-bin-line"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="conference-card-footer">
+                                    {% if conf.start_time %}
+                                    <i class="ri-time-line"></i> 开始于: {{ conf.start_time.split('T')[0] }} {{ conf.start_time.split('T')[1].split('.')[0] }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="empty-state">
+                            <div class="empty-state-icon">
+                                <i class="ri-calendar-line"></i>
+                            </div>
+                            <h3 class="empty-state-title">当前没有进行中的会议</h3>
+                            <p class="empty-state-description">点击"创建新会议"按钮开始一个新的会议。</p>
+                            <button id="empty-create-btn" class="btn">
+                                <i class="ri-add-line btn-icon"></i>
+                                创建新会议
+                            </button>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 创建会议对话框 -->
+    <div class="modal-backdrop" id="create-conference-modal">
+        <div class="modal" id="create-conference-content">
+            <div class="modal-header">
+                <h3 class="modal-title">创建新会议</h3>
+                <button class="modal-close" id="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="conference-form" action="/start_conference" method="post">
+                    <div class="form-group">
+                        <label for="conference_title">会议标题</label>
+                        <input type="text" id="conference_title" name="conference_title" placeholder="例如：产品战略研讨会">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="num_agents">专家数量</label>
+                        <select id="num_agents" name="num_agents">
+                            <option value="3">3 位专家</option>
+                            <option value="4">4 位专家</option>
+                            <option value="5" selected>5 位专家</option>
+                            <option value="6">6 位专家</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="topic">讨论主题</label>
+                        <textarea id="topic" name="topic" rows="3" placeholder="例如：探讨人工智能在医疗领域的应用前景"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="cancel-create">取消</button>
+                <button class="btn" onclick="submitConferenceForm()">创建会议</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 删除确认对话框 -->
+    <div class="modal-backdrop" id="delete-confirm-modal">
+        <div class="modal" id="delete-confirm-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3 class="modal-title">确认删除</h3>
+                <button class="modal-close" id="close-delete-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>确定要删除会议 "<span id="conference-to-delete"></span>" 吗？</p>
+                <p style="color: var(--danger-color); font-size: 0.9rem; margin-top: 10px;">
+                    <i class="ri-error-warning-line"></i> 此操作不可恢复。
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="cancel-delete">取消</button>
+                <button class="btn btn-danger" id="confirm-delete">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 侧边栏切换
+        document.getElementById('sidebar-toggle').addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+            document.querySelector('.main-content').classList.toggle('expanded');
+            document.querySelector('.header').classList.toggle('expanded');
+        });
+        
+        // 创建会议对话框
+        const createModal = document.getElementById('create-conference-modal');
+        const createModalContent = document.getElementById('create-conference-content');
+        
+        document.getElementById('create-conference-btn').addEventListener('click', function() {
+            createModal.classList.add('active');
+            setTimeout(() => {
+                createModalContent.classList.add('active');
+            }, 10);
+        });
+        
+        if (document.getElementById('empty-create-btn')) {
+            document.getElementById('empty-create-btn').addEventListener('click', function() {
+                createModal.classList.add('active');
+                setTimeout(() => {
+                    createModalContent.classList.add('active');
+                }, 10);
+            });
+        }
+        
+        function closeCreateModal() {
+            createModalContent.classList.remove('active');
+            setTimeout(() => {
+                createModal.classList.remove('active');
+            }, 300);
+        }
+        
+        document.getElementById('close-modal').addEventListener('click', closeCreateModal);
+        document.getElementById('cancel-create').addEventListener('click', closeCreateModal);
+        
+        createModal.addEventListener('click', function(e) {
+            if (e.target === createModal) {
+                closeCreateModal();
+            }
+        });
+        
+        // 删除确认对话框
+        const deleteModal = document.getElementById('delete-confirm-modal');
+        const deleteModalContent = document.getElementById('delete-confirm-content');
+        let conferenceIdToDelete = null;
+        
+        function confirmDeleteConference(conferenceId, title, buttonElement) {
+            conferenceIdToDelete = conferenceId;
+            document.getElementById('conference-to-delete').textContent = title || conferenceId;
+            
+            deleteModal.classList.add('active');
+            setTimeout(() => {
+                deleteModalContent.classList.add('active');
+            }, 10);
+        }
+        
+        function closeDeleteModal() {
+            deleteModalContent.classList.remove('active');
+            setTimeout(() => {
+                deleteModal.classList.remove('active');
+                conferenceIdToDelete = null;
+            }, 300);
+        }
+        
+        document.getElementById('close-delete-modal').addEventListener('click', closeDeleteModal);
+        document.getElementById('cancel-delete').addEventListener('click', closeDeleteModal);
+        
+        deleteModal.addEventListener('click', function(e) {
+            if (e.target === deleteModal) {
+                closeDeleteModal();
+            }
+        });
+        
+        document.getElementById('confirm-delete').addEventListener('click', function() {
+            if (conferenceIdToDelete) {
+                deleteConference(conferenceIdToDelete);
+            }
+        });
+        
+        // 删除会议
+        function deleteConference(conferenceId) {
+            fetch(`/api/conferences/${conferenceId}`, {
+                method: 'DELETE'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`删除失败: ${response.status} ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                closeDeleteModal();
+                
+                // 显示成功通知
+                showNotification(data.message || '会议已成功删除', 'success');
+                
+                // 2秒后刷新页面
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            })
+            .catch(error => {
+                closeDeleteModal();
+                showNotification(`删除失败: ${error.message}`, 'error');
+            });
+        }
+        
+        // 提交会议表单
+        function submitConferenceForm() {
+            const form = document.getElementById('conference-form');
+            const title = document.getElementById('conference_title').value.trim();
+            const topic = document.getElementById('topic').value.trim();
+            
+            if (!topic) {
+                showNotification('讨论主题不能为空', 'error');
+                return;
+            }
+            
+            form.submit();
+        }
+        
+        // 通知功能
+        function showNotification(message, type = 'default') {
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            
+            if (type === 'success') {
+                notification.classList.add('notification-success');
+                notification.innerHTML = `
+                    <i class="ri-checkbox-circle-line notification-icon"></i>
+                    <span>${message}</span>
+                `;
+            } else if (type === 'error') {
+                notification.classList.add('notification-error');
+                notification.innerHTML = `
+                    <i class="ri-error-warning-line notification-icon"></i>
+                    <span>${message}</span>
+                `;
+            } else {
+                notification.innerHTML = `
+                    <i class="ri-information-line notification-icon"></i>
+                    <span>${message}</span>
+                `;
+            }
+            
+            document.body.appendChild(notification);
+            
+            // 显示通知
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 10);
+            
+            // 3秒后隐藏通知
+            setTimeout(() => {
+                notification.classList.remove('show');
+                
+                // 动画结束后删除元素
+                notification.addEventListener('transitionend', function() {
+                    if (notification.parentNode) {
+                        document.body.removeChild(notification);
+                    }
+                });
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

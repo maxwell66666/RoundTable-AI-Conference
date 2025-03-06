@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>专家管理 - RoundTable会议系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/main.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>RoundTable</h1>
+            </div>
+            <div class="sidebar-nav">
+                <a href="/" class="nav-item">
+                    <i class="ri-dashboard-line"></i>
+                    <span>首页</span>
+                </a>
+                <a href="/conferences" class="nav-item">
+                    <i class="ri-calendar-event-line"></i>
+                    <span>会议管理</span>
+                </a>
+                <a href="/dialogue_histories" class="nav-item">
+                    <i class="ri-message-3-line"></i>
+                    <span>对话历史</span>
+                </a>
+                <a href="/agent" class="nav-item active">
+                    <i class="ri-user-line"></i>
+                    <span>专家管理</span>
+                </a>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">系统</div>
+                    <a href="#" class="nav-item">
+                        <i class="ri-settings-3-line"></i>
+                        <span>系统设置</span>
+                    </a>
+                    <a href="https://github.com/yourusername/RoundTable" target="_blank" class="nav-item">
+                        <i class="ri-github-line"></i>
+                        <span>文档</span>
+                    </a>
+                </div>
+            </div>
+            <div class="sidebar-footer">
+                版本 {{ version.version }}
+            </div>
+        </aside>
+        
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <button class="sidebar-toggle" id="sidebar-toggle">
+                <i class="ri-menu-line"></i>
+            </button>
+            <div class="header-title">专家管理</div>
+            <div class="header-actions">
+                <button class="btn btn-sm" id="add-agent-btn">
+                    <i class="ri-add-line btn-icon"></i>
+                    <span>添加专家</span>
+                </button>
+            </div>
+        </header>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">专家管理</h1>
+                <p class="page-subtitle">管理系统中的专家模型，设置专家的知识背景、个性特征和沟通风格。</p>
+            </div>
+            
+            <!-- 专家列表 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">专家列表</h2>
+                </div>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>名称</th>
+                                <th>背景信息</th>
+                                <th>人格特质</th>
+                                <th>沟通风格</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for agent in agents %}
+                            <tr>
+                                <td>{{ agent.agent_id }}</td>
+                                <td>{{ agent.name }}</td>
+                                <td class="truncate">
+                                    {% if agent.background_info is string %}
+                                        {{ agent.background_info }}
+                                    {% else %}
+                                        {{ agent.background_info|tojson }}
+                                    {% endif %}
+                                </td>
+                                <td class="truncate">
+                                    {% if agent.personality_traits is string %}
+                                        {{ agent.personality_traits }}
+                                    {% else %}
+                                        {{ agent.personality_traits|tojson }}
+                                    {% endif %}
+                                </td>
+                                <td class="truncate">
+                                    {% if agent.communication_style is string %}
+                                        {{ agent.communication_style }}
+                                    {% else %}
+                                        {{ agent.communication_style|tojson }}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm edit-agent" data-id="{{ agent.agent_id }}">编辑</button>
+                                    <button class="btn btn-sm btn-danger delete-agent" data-id="{{ agent.agent_id }}">删除</button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 专家表单对话框 -->
+    <div class="modal-backdrop" id="agent-form-modal">
+        <div class="modal" id="agent-form-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="form-title">添加专家</h3>
+                <button class="modal-close" id="close-form-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="agent-form" class="form">
+                    <input type="hidden" id="edit-mode" value="false">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div class="form-group">
+                            <label for="agent_id">专家ID</label>
+                            <input type="text" id="agent_id" name="agent_id" placeholder="例如: A001">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="name">专家名称</label>
+                            <input type="text" id="name" name="name" placeholder="例如: Dr. Smith">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="background_info">背景信息 (JSON)</label>
+                        <textarea id="background_info" name="background_info" rows="3" placeholder='{"education": "PhD in AI", "skills": ["reasoning", "coding"]}'></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="personality_traits">人格特质 (JSON)</label>
+                        <textarea id="personality_traits" name="personality_traits" rows="3" placeholder='{"mood": "optimistic", "thinking": "logical", "mbti": "INTJ"}'></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="knowledge_base_links">知识库链接 (JSON)</label>
+                        <textarea id="knowledge_base_links" name="knowledge_base_links" rows="2" placeholder='["http://example.com/ai-knowledge"]'></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="communication_style">沟通风格 (JSON)</label>
+                        <textarea id="communication_style" name="communication_style" rows="2" placeholder='{"style": "formal", "tone": "clear"}'></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="cancel-form">取消</button>
+                <button class="btn" id="submit-form">保存</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 删除确认对话框 -->
+    <div class="modal-backdrop" id="delete-confirm-modal">
+        <div class="modal" id="delete-confirm-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3 class="modal-title">确认删除</h3>
+                <button class="modal-close" id="close-delete-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>确定要删除专家 "<span id="agent-to-delete"></span>" 吗？</p>
+                <p style="color: var(--danger-color); font-size: 0.9rem; margin-top: 10px;">
+                    <i class="ri-error-warning-line"></i> 此操作不可恢复。
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="cancel-delete">取消</button>
+                <button class="btn btn-danger" id="confirm-delete">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        textarea {
+            font-family: var(--font-sans);
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid rgba(0,0,0,0.1);
+            border-radius: 8px;
+            font-size: 15px;
+            resize: vertical;
+            transition: all 0.2s;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(68, 93, 110, 0.15);
+        }
+        
+        .truncate {
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        /* 响应式调整 */
+        @media (max-width: 992px) {
+            td.truncate {
+                max-width: 100px;
+            }
+        }
+    </style>
+
+    <script>
+        // 侧边栏切换
+        document.getElementById('sidebar-toggle').addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+            document.querySelector('.main-content').classList.toggle('expanded');
+            document.querySelector('.header').classList.toggle('expanded');
+        });
+        
+        // 表单对话框
+        const agentFormModal = document.getElementById('agent-form-modal');
+        const agentFormContent = document.getElementById('agent-form-content');
+        let agentIdToDelete = null;
+        
+        // 显示添加表单
+        document.getElementById('add-agent-btn').addEventListener('click', function() {
+            document.getElementById('form-title').textContent = '添加专家';
+            document.getElementById('edit-mode').value = 'false';
+            document.getElementById('agent-form').reset();
+            document.getElementById('agent_id').readOnly = false;
+            
+            agentFormModal.classList.add('active');
+            setTimeout(() => {
+                agentFormContent.classList.add('active');
+            }, 10);
+        });
+        
+        // 关闭表单
+        function closeAgentForm() {
+            agentFormContent.classList.remove('active');
+            setTimeout(() => {
+                agentFormModal.classList.remove('active');
+            }, 300);
+        }
+        
+        document.getElementById('close-form-btn').addEventListener('click', closeAgentForm);
+        document.getElementById('cancel-form').addEventListener('click', closeAgentForm);
+        
+        agentFormModal.addEventListener('click', function(e) {
+            if (e.target === agentFormModal) {
+                closeAgentForm();
+            }
+        });
+        
+        // 提交表单
+        document.getElementById('submit-form').addEventListener('click', async function() {
+            // 验证表单
+            const agentId = document.getElementById('agent_id').value.trim();
+            const name = document.getElementById('name').value.trim();
+            
+            if (!agentId) {
+                alert('专家ID不能为空');
+                return;
+            }
+            
+            if (!name) {
+                alert('专家名称不能为空');
+                return;
+            }
+            
+            // 收集表单数据
+            const formData = {
+                agent_id: agentId,
+                name: name,
+                background_info: document.getElementById('background_info').value,
+                personality_traits: document.getElementById('personality_traits').value,
+                knowledge_base_links: document.getElementById('knowledge_base_links').value,
+                communication_style: document.getElementById('communication_style').value
+            };
+            
+            try {
+                // 将JSON字段解析为对象
+                try {
+                    if (formData.background_info) {
+                        formData.background_info = JSON.parse(formData.background_info);
+                    }
+                    
+                    if (formData.personality_traits) {
+                        formData.personality_traits = JSON.parse(formData.personality_traits);
+                    }
+                    
+                    if (formData.knowledge_base_links) {
+                        formData.knowledge_base_links = JSON.parse(formData.knowledge_base_links);
+                    }
+                    
+                    if (formData.communication_style) {
+                        formData.communication_style = JSON.parse(formData.communication_style);
+                    }
+                } catch (e) {
+                    alert('JSON格式错误: ' + e.message);
+                    return;
+                }
+                
+                // 发送请求
+                const isEdit = document.getElementById('edit-mode').value === 'true';
+                const url = isEdit ? `/api/agents/${agentId}` : '/api/agents';
+                const method = isEdit ? 'PUT' : 'POST';
+                
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || '操作失败');
+                }
+                
+                // 操作成功，刷新页面
+                location.reload();
+            } catch (error) {
+                alert('错误: ' + error.message);
+            }
+        });
+        
+        // 编辑专家
+        document.querySelectorAll('.edit-agent').forEach(function(button) {
+            button.addEventListener('click', async function() {
+                const agentId = this.getAttribute('data-id');
+                try {
+                    const response = await fetch(`/api/agents/${agentId}`);
+                    if (!response.ok) {
+                        throw new Error('获取专家信息失败');
+                    }
+                    
+                    const agent = await response.json();
+                    
+                    // 填充表单
+                    document.getElementById('agent_id').value = agent.agent_id;
+                    document.getElementById('agent_id').readOnly = true; // ID不可修改
+                    document.getElementById('name').value = agent.name;
+                    
+                    document.getElementById('background_info').value = typeof agent.background_info === 'object' ? 
+                        JSON.stringify(agent.background_info, null, 2) : agent.background_info || '';
+                        
+                    document.getElementById('personality_traits').value = typeof agent.personality_traits === 'object' ? 
+                        JSON.stringify(agent.personality_traits, null, 2) : agent.personality_traits || '';
+                        
+                    document.getElementById('knowledge_base_links').value = typeof agent.knowledge_base_links === 'object' ? 
+                        JSON.stringify(agent.knowledge_base_links, null, 2) : agent.knowledge_base_links || '';
+                        
+                    document.getElementById('communication_style').value = typeof agent.communication_style === 'object' ? 
+                        JSON.stringify(agent.communication_style, null, 2) : agent.communication_style || '';
+                    
+                    // 设置为编辑模式
+                    document.getElementById('edit-mode').value = 'true';
+                    document.getElementById('form-title').textContent = '编辑专家';
+                    
+                    // 显示表单
+                    agentFormModal.classList.add('active');
+                    setTimeout(() => {
+                        agentFormContent.classList.add('active');
+                    }, 10);
+                } catch (error) {
+                    alert('错误: ' + error.message);
+                }
+            });
+        });
+        
+        // 删除确认对话框
+        const deleteModal = document.getElementById('delete-confirm-modal');
+        const deleteModalContent = document.getElementById('delete-confirm-content');
+        
+        document.querySelectorAll('.delete-agent').forEach(function(button) {
+            button.addEventListener('click', function() {
+                const agentId = this.getAttribute('data-id');
+                agentIdToDelete = agentId;
+                
+                // 获取专家名称
+                const row = this.closest('tr');
+                const agentName = row.cells[1].textContent;
+                document.getElementById('agent-to-delete').textContent = `${agentName} (${agentId})`;
+                
+                // 显示删除确认框
+                deleteModal.classList.add('active');
+                setTimeout(() => {
+                    deleteModalContent.classList.add('active');
+                }, 10);
+            });
+        });
+        
+        // 关闭删除确认框
+        function closeDeleteModal() {
+            deleteModalContent.classList.remove('active');
+            setTimeout(() => {
+                deleteModal.classList.remove('active');
+                agentIdToDelete = null;
+            }, 300);
+        }
+        
+        document.getElementById('close-delete-modal').addEventListener('click', closeDeleteModal);
+        document.getElementById('cancel-delete').addEventListener('click', closeDeleteModal);
+        
+        deleteModal.addEventListener('click', function(e) {
+            if (e.target === deleteModal) {
+                closeDeleteModal();
+            }
+        });
+        
+        // 确认删除
+        document.getElementById('confirm-delete').addEventListener('click', async function() {
+            if (!agentIdToDelete) return;
+            
+            try {
+                const response = await fetch(`/api/agents/${agentIdToDelete}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || '删除失败');
+                }
+                
+                // 删除成功，刷新页面
+                location.reload();
+            } catch (error) {
+                alert('错误: ' + error.message);
+                closeDeleteModal();
+            }
+        });
+    </script>
+</body>
+</html> 

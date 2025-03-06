@@ -200,3 +200,33 @@ def end_conference(conference_id):
     _save_conference(conference)
     
     return conference
+
+@with_db_connection
+def delete_conference(conference_id, conn=None):
+    """
+    从数据库中删除指定ID的会议
+    
+    参数:
+        conference_id: 要删除的会议ID
+        conn: 数据库连接(由装饰器提供)
+    
+    返回:
+        布尔值，表示是否成功删除
+    """
+    cursor = conn.cursor()
+    
+    # 检查会议是否存在
+    cursor.execute('SELECT conference_id FROM conferences WHERE conference_id = ?', (conference_id,))
+    if not cursor.fetchone():
+        raise ValueError(f"会议ID {conference_id} 不存在")
+    
+    # 执行删除操作
+    cursor.execute('DELETE FROM conferences WHERE conference_id = ?', (conference_id,))
+    
+    # 检查删除是否成功
+    if cursor.rowcount > 0:
+        print(f"会议 {conference_id} 已成功删除")
+        return True
+    else:
+        print(f"删除会议 {conference_id} 失败")
+        return False
