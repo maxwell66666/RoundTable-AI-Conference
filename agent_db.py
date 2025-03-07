@@ -83,6 +83,17 @@ class Agent:
         self.personality_traits = personality_traits  # Now includes "mbti" field
         self.knowledge_base_links = knowledge_base_links
         self.communication_style = communication_style
+    
+    def to_dict(self):
+        """Convert Agent object to a dictionary for JSON serialization"""
+        return {
+            "agent_id": self.agent_id,
+            "name": self.name,
+            "background_info": self.background_info,
+            "personality_traits": self.personality_traits,
+            "knowledge_base_links": self.knowledge_base_links,
+            "communication_style": self.communication_style
+        }
 
 # Function to add an agent to the database
 @with_db_connection
@@ -232,8 +243,7 @@ def get_random_agents(conn, num_agents, diversity_parameters=None):
 
     if len(agents) < num_agents:
         print(f"Only {len(agents)} agents available, returning all.")
-        # 只返回agent_id列表，而不是Agent对象
-        return [agent.agent_id for agent in agents]
+        return [agent.agent_id for agent in agents]  # Return agent IDs instead of Agent objects
 
     if diversity_parameters and "mbti" in diversity_parameters:
         # Ensure diverse MBTI types
@@ -247,9 +257,10 @@ def get_random_agents(conn, num_agents, diversity_parameters=None):
                 mbti_types.add(mbti)
             if len(diverse_agents) >= num_agents:
                 break
-        return [agent.agent_id for agent in diverse_agents[:num_agents]]
+        return [agent.agent_id for agent in diverse_agents[:num_agents]]  # Return agent IDs
     else:
-        return random.sample([agent.agent_id for agent in agents], num_agents)
+        selected_agents = random.sample(agents, num_agents)
+        return [agent.agent_id for agent in selected_agents]  # Return agent IDs
 
 # Test the code with multiple agents and new features
 if __name__ == "__main__":
@@ -325,11 +336,11 @@ if __name__ == "__main__":
 
     # Get 2 random agents with MBTI diversity
     random_diverse_agents = get_random_agents(2, {"mbti": True})
-    print(f"Random Diverse Agents (by MBTI): {[agent for agent in random_diverse_agents]}")
+    print(f"Random Diverse Agents (by MBTI): {[agent.name + ' (' + agent.personality_traits.get('mbti', 'Unknown') + ')' for agent in random_diverse_agents]}")
 
     # Get 3 random agents without diversity
     random_agents = get_random_agents(3)
-    print(f"Random Agents: {[agent for agent in random_agents]}")
+    print(f"Random Agents: {[agent.name + ' (' + agent.personality_traits.get('mbti', 'Unknown') + ')' for agent in random_agents]}")
 
     # Update an agent
     updated_data = {

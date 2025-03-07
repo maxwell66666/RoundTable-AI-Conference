@@ -104,8 +104,28 @@ def create_conference(conference_id, title, topic, num_agents, conference_type="
         raise ValueError(f"会议ID {conference_id} 已存在")
 
     # 生成议程
-    from app import generate_agenda
-    agenda = generate_agenda(topic)
+    agenda = [
+        {
+            "phase_name": "主题讨论",
+            "topics": [topic],
+            "description": f"对 '{topic}' 进行深入讨论，分享各自观点和见解"
+        },
+        {
+            "phase_name": "专家分享",
+            "topics": [topic],
+            "description": f"各位专家轮流分享关于 '{topic}' 的专业知识和经验"
+        },
+        {
+            "phase_name": "问答",
+            "topics": [topic],
+            "description": f"针对 '{topic}' 提出疑问并回答其他参与者的问题"
+        },
+        {
+            "phase_name": "总结",
+            "topics": [topic],
+            "description": f"归纳讨论中的关键点，提出具体可行的结论和建议"
+        }
+    ]
     
     # 获取随机代理
     agent_ids = get_random_agents(num_agents)

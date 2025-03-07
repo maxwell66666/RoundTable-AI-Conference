@@ -112,9 +112,9 @@
                         </div>
                     </div>
                     {% set phase_count = namespace(total=0) %}
-                    {% for conf in conferences %}
+        {% for conf in conferences %}
                         {% set phase_count.total = phase_count.total + conf.agenda|length %}
-                    {% endfor %}
+        {% endfor %}
                     <div class="stat-value">{{ phase_count.total }}</div>
                     <a href="/conferences" class="stat-link" style="color: var(--success-color);">
                         <span>会议详情</span>
@@ -135,8 +135,8 @@
                         <i class="ri-arrow-right-s-line"></i>
                     </a>
                 </div>
-            </div>
-            
+        </div>
+        
             <!-- 主内容区网格 -->
             <div class="grid" style="grid-template-columns: 2fr 1fr;">
                 <!-- 左侧内容 -->
@@ -171,7 +171,7 @@
                                             进入会议
                                         </a>
                                     </div>
-                                    {% endfor %}
+            {% endfor %}
                                 </div>
                             {% else %}
                                 <div class="empty-state">
@@ -235,7 +235,7 @@
                                         创建会议
                                     </button>
                                 </div>
-                            </form>
+    </form>
                         </div>
                     </div>
                 </div>
@@ -564,7 +564,7 @@
                     }
                 });
             }, 3000);
-        }
+    }
     </script>
 </body>
 </html>

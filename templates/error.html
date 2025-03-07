@@ -59,10 +59,10 @@
             </button>
             <div class="header-title">错误</div>
             <div class="header-actions">
-                <a href="/" class="btn btn-sm">
-                    <i class="ri-home-line btn-icon"></i>
-                    <span>返回首页</span>
-                </a>
+                <button class="btn btn-sm" onclick="window.history.back()">
+                    <i class="ri-arrow-left-line btn-icon"></i>
+                    <span>返回</span>
+                </button>
             </div>
         </header>
         
@@ -73,27 +73,52 @@
                 <p class="page-subtitle">系统在处理您的请求时遇到了问题。</p>
             </div>
             
-            <!-- 错误信息卡片 -->
+            <!-- 错误卡片 -->
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">{{ error_title }}</h2>
+                    <h2 class="card-title">错误详情</h2>
                 </div>
                 <div class="card-body">
-                    <div style="background-color: rgba(165, 127, 120, 0.1); color: var(--danger-color); padding: 20px; border-radius: 8px; margin: 15px 0; border-left: 4px solid var(--danger-color);">
-                        <h3 style="margin-top: 0; margin-bottom: 10px; font-weight: 500;">错误详情</h3>
-                        <p style="margin-bottom: 0;">{{ error_message }}</p>
+                    <div style="background-color: rgba(235, 87, 87, 0.08); border-left: 4px solid var(--danger-color); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                        <h3 style="color: var(--danger-color); margin-top: 0; margin-bottom: 10px; font-size: 1.2rem;">
+                            <i class="ri-error-warning-line"></i> 
+                            {{ error_title | default('系统错误') }}
+                        </h3>
+                        <p style="margin-bottom: 0; color: var(--text-dark);">{{ error_message | default('处理您的请求时发生未知错误。') }}</p>
                     </div>
                     
-                    <div style="margin-top: 30px;">
-                        <a href="javascript:history.back()" class="btn btn-outline">
+                    {% if error_details %}
+                    <div style="background-color: rgba(0, 0, 0, 0.03); padding: 15px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; overflow-x: auto;">
+                        {{ error_details }}
+                    </div>
+                    {% endif %}
+                    
+                    <div style="margin-top: 30px; display: flex; gap: 10px;">
+                        <button class="btn btn-primary" onclick="window.history.back()">
                             <i class="ri-arrow-left-line btn-icon"></i>
-                            <span>返回上一页</span>
-                        </a>
-                        <a href="/" class="btn btn-primary" style="margin-left: 10px;">
+                            返回上一页
+                        </button>
+                        <a href="/" class="btn btn-outline">
                             <i class="ri-home-line btn-icon"></i>
-                            <span>返回首页</span>
+                            返回首页
                         </a>
                     </div>
+                </div>
+            </div>
+            
+            <!-- 帮助卡片 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">可能的解决方法</h2>
+                </div>
+                <div class="card-body">
+                    <ul style="margin-left: 20px; color: var(--text-medium);">
+                        <li style="margin-bottom: 8px;">刷新页面，重试您的操作</li>
+                        <li style="margin-bottom: 8px;">检查您的网络连接是否正常</li>
+                        <li style="margin-bottom: 8px;">确认您是否有执行此操作的权限</li>
+                        <li style="margin-bottom: 8px;">如果问题持续，请清除浏览器缓存后再试</li>
+                        <li>联系系统管理员获取帮助</li>
+                    </ul>
                 </div>
             </div>
         </main>

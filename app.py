@@ -26,11 +26,8 @@ import random
 import uuid
 import shutil
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# 初始化日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("roundtable")
 
 app = FastAPI(title="RoundTable对话系统", version=get_version())
@@ -43,6 +40,32 @@ templates = Jinja2Templates(directory="templates")
 
 # 版本信息
 VERSION_INFO = get_version_info()
+
+def generate_agenda(topic):
+    """根据主题生成会议议程"""
+    agenda = [
+        {
+            "phase_name": "主题讨论",
+            "topics": [topic],
+            "description": f"对 '{topic}' 进行深入讨论，分享各自观点和见解"
+        },
+        {
+            "phase_name": "专家分享",
+            "topics": [topic],
+            "description": f"各位专家轮流分享关于 '{topic}' 的专业知识和经验"
+        },
+        {
+            "phase_name": "问答",
+            "topics": [topic],
+            "description": f"针对 '{topic}' 提出疑问并回答其他参与者的问题"
+        },
+        {
+            "phase_name": "总结",
+            "topics": [topic],
+            "description": f"归纳讨论中的关键点，提出具体可行的结论和建议"
+        }
+    ]
+    return agenda
 
 # 管理WebSocket连接
 class ConnectionManager:
@@ -368,122 +391,6 @@ async def agent_management_page(request: Request):
         "version": VERSION_INFO
     })
 
-# 数据库管理器类
-class DatabaseManager:
-    def __init__(self):
-        # 确保数据库已初始化
-        init_agent_db()
-    
-    def get_all_agents(self):
-        """获取所有专家并转换为可JSON序列化的字典格式"""
-        agents = list_agents()
-        # 将Agent对象转换为字典
-        return [
-            {
-                "agent_id": agent.agent_id,
-                "name": agent.name,
-                "background_info": agent.background_info,
-                "personality_traits": agent.personality_traits,
-                "knowledge_base_links": agent.knowledge_base_links,
-                "communication_style": agent.communication_style
-            }
-            for agent in agents
-        ]
-    
-    def get_agent(self, agent_id):
-        """获取特定专家"""
-        from agent_db import get_agent
-        agent = get_agent(agent_id)
-        if agent:
-            # 将Agent对象转换为字典
-            return {
-                "agent_id": agent.agent_id,
-                "name": agent.name,
-                "background_info": agent.background_info,
-                "personality_traits": agent.personality_traits,
-                "knowledge_base_links": agent.knowledge_base_links,
-                "communication_style": agent.communication_style
-            }
-        return None
-
-# 创建数据库管理器实例
-db_manager = DatabaseManager()
-
-def generate_agenda(topic):
-    """
-    根据会议主题生成会议议程
-    
-    Args:
-        topic (str): 会议主题
-    
-    Returns:
-        list: 包含多个阶段的议程列表，每个阶段包含phase_name和topics
-    """
-    # 定义可能的阶段类型
-    phase_types = [
-        "开场介绍",
-        "主题讨论",
-        "专家分享",
-        "问题解答",
-        "头脑风暴",
-        "总结展望"
-    ]
-    
-    # 尝试从agenda.json加载模板
-    try:
-        with open("agenda.json", "r", encoding="utf-8") as f:
-            template = json.load(f)
-            # 确保模板使用phase_name而不是phase_type
-            for phase in template:
-                if "phase_type" in phase and "phase_name" not in phase:
-                    phase["phase_name"] = phase.pop("phase_type")
-                
-                # 重要：替换topics中的默认主题为用户输入的主题
-                if "topics" in phase:
-                    phase["topics"] = [topic]
-    except (FileNotFoundError, json.JSONDecodeError):
-        # 如果无法加载模板，创建默认议程
-        template = [
-            {"phase_name": "开场介绍", "topics": [f"{topic}概述"]},
-            {"phase_name": "主题讨论", "topics": [topic]},
-            {"phase_name": "专家分享", "topics": [f"{topic}的最佳实践"]},
-            {"phase_name": "总结展望", "topics": [f"{topic}未来发展"]}
-        ]
-    
-    # 根据主题自定义议程
-    agenda = []
-    for phase in template:
-        new_phase = phase.copy()
-        
-        # 确保每个阶段都有topics字段
-        if "topics" not in new_phase:
-            new_phase["topics"] = [topic]
-        
-        # 将主题融入到topics中
-        new_topics = []
-        for t in new_phase["topics"]:
-            if "{topic}" in t:
-                new_topics.append(t.format(topic=topic))
-            else:
-                # 如果不是格式化字符串，直接使用用户输入的主题
-                new_topics.append(topic)
-        
-        new_phase["topics"] = new_topics
-        agenda.append(new_phase)
-    
-    # 如果议程太短，添加更多阶段
-    if len(agenda) < 3:
-        unused_phases = [p for p in phase_types if p not in [phase["phase_name"] for phase in agenda]]
-        while len(agenda) < 3 and unused_phases:
-            phase_name = random.choice(unused_phases)
-            unused_phases.remove(phase_name)
-            agenda.append({
-                "phase_name": phase_name,
-                "topics": [f"{topic}相关的{phase_name}"]
-            })
-    
-    return agenda
-
 # 启动新会议
 @app.post("/start_conference", response_class=HTMLResponse)
 async def start_new_conference(request: Request):
@@ -503,13 +410,13 @@ async def start_new_conference(request: Request):
         agenda = generate_agenda(topic)
         
         # 检查是否有足够的 agent 可用
-        available_agents = db_manager.get_all_agents()
+        available_agents = list_agents()
         if len(available_agents) < num_agents:
             error_html = templates.get_template("error.html").render(
                 request=request,
                 error_title="专家数量不足",
                 error_message=f"需要 {num_agents} 位专家，但只找到 {len(available_agents)} 位。请先添加更多专家。",
-                version=get_version()
+                version=VERSION_INFO
             )
             return HTMLResponse(content=error_html)
         
@@ -541,7 +448,7 @@ async def start_new_conference(request: Request):
             request=request,
             error_title="会议创建失败",
             error_message=str(e),
-            version=get_version()
+            version=VERSION_INFO
         )
         return HTMLResponse(content=error_html)
 
