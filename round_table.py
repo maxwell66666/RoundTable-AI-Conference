@@ -283,107 +283,128 @@ def get_referenced_agent_name(text, agent_ids):
     return modified_text
 
 # 使用 LLM API 生成代理发言
-def generate_agent_speech(agent, phase_name, topic, previous_speech=None):
+def generate_agent_speech(agent, phase_name, topic, previous_speech=None, is_follow_up=False, round_number=0):
     """使用指定的 LLM API 生成代理的发言。"""
     skills = ", ".join(agent.background_info.get("skills", []))
     mbti = agent.personality_traits.get("mbti", "未知")
-    style = agent.communication_style.get("style", "中立")
-    tone = agent.communication_style.get("tone", "中立")
-
-    # 根据阶段类型和上下文构建提示词
-    if phase_name == "主题讨论":
-        if previous_speech:
-            previous_agent_name = get_agent_name_by_id(previous_speech['agent_id']) or previous_speech['agent_id']
-            
-            # 检查前一条消息是否包含了用户问题的回答
-            was_user_question_response = "提问给" in previous_speech.get('speech', '') or "用户" in previous_speech.get('speech', '')
-            
-            if was_user_question_response:
-                prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 进行深入讨论，同时考虑 {previous_agent_name} 刚才回答的用户提问。
-
-你的回应需要：
-1. 简明扼要地提及用户的提问以及 {previous_agent_name} 的核心回答观点
-2. 从你的 {skills} 专业背景出发，对 {previous_agent_name} 的回答进行扩展或补充
-3. 提供具体的例子、数据或案例支持你的观点
-4. 分析这个问题的其他可能角度或解决方案
-5. 提出一个深度思考问题，推动讨论向更深层次发展
-
-请以 {tone} 的语调回答，避免空泛的表达和客套话。直接使用对方的名字 {previous_agent_name} 而不是代号。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
-            else:
-                prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请回应 {previous_agent_name} 关于 {topic} 的观点。
-
-你的回应需要：
-1. 明确表达你对 {previous_agent_name} 观点的分析（不仅是简单的同意或反对）
-2. 结合你的 {skills} 专业背景提供具体的例子、数据或案例
-3. 提出1-2个具体且可行的解决方案或建议
-4. 分析这些方案的可能影响和挑战
-5. 提出一个深度思考问题，推动讨论向更深层次发展
-
-请以 {tone} 的语调回答，避免空泛的表达和客套话。直接使用对方的名字 {previous_agent_name} 而不是代号。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
-        else:
-            prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 展开深度分析。
-
-你的回应需要：
-1. 简明扼要地解释为什么 {topic} 在当前背景下至关重要
-2. 结合你的 {skills} 专业背景分析其中2-3个关键挑战或机遇
-3. 提供具体的数据、案例或研究结果支持你的观点
-4. 提出1-2个具体且可行的解决方案或建议
-5. 分析这些方案的可能影响和实施难点
-
-请以 {tone} 的语调回答，避免空泛的表达和客套话。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
-    elif phase_name == "专家分享":
-        if previous_speech and "专家" in previous_speech["speech"].lower():
-            previous_agent_name = get_agent_name_by_id(previous_speech['agent_id']) or previous_speech['agent_id']
-            prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请在 {previous_agent_name} 关于 {topic} 的专业分享基础上进行扩展。
-
-你的回应需要：
-1. 简明扼要地总结 {previous_agent_name} 的核心观点（不要过于冗长）
-2. 从你的 {skills} 专业角度提供补充视角或不同的解读
-3. 分享1-2个相关但 {previous_agent_name} 未提及的关键洞见
-4. 提供具体的案例、研究或数据支持你的观点
-5. 指出当前领域内存在的争议或未解问题
-
-请以 {tone} 的语调回答，确保内容既有专业深度又通俗易懂。直接使用对方的名字 {previous_agent_name} 而不是代号。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
-        else:
-            prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 进行专业性分享。
-
-你的分享需要：
-1. 开门见山地指出 {topic} 中最被误解或忽视的1-2个关键方面
-2. 结合你的 {skills} 专业背景，分享2-3个独到的专业见解
-3. 提供具体的案例、研究数据或实践经验支持你的论点
-4. 分析当前领域内的主要争议或发展趋势
-5. 提出对未来发展的预测或建议
-
-请以 {tone} 的语调回答，确保内容既有专业深度又通俗易懂。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
-    elif phase_name == "问答":
-        prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 相关问题提供专业回答。
-
-你的回应需要：
+    mood = agent.personality_traits.get("mood", "中性")
+    style = agent.communication_style.get("style", "专业")
+    tone = agent.communication_style.get("tone", "平静")
+    
+    # 特殊处理用户问题
+    if previous_speech and previous_speech.get("agent_id") == "用户" and round_number == 99:
+        user_question = previous_speech.get("speech", "")
+        role_instruct = f"""你是一名专家，正在回答用户关于"{topic}"的问题。用户问题是："{user_question}"
+        
+你需要：
 1. 直接切入问题核心，避免不必要的铺垫
-2. 基于你的 {skills} 专业知识提供准确、全面的解释
-3. 提供具体的例子、数据或案例支持你的回答
-4. 分析不同观点或方法的优缺点
-5. 在适当的情况下，承认领域内的不确定性或知识局限
+2. 从你的专业角度提供具体、准确的回答
+3. 如果问题涉及争议性内容，清晰说明不同观点
+4. 确保回答深度和广度兼具，并提供明确的结论
+5. 如合适，提供相关案例或数据支持你的观点
 
-请以 {tone} 的语调回答，确保内容既权威又易于理解。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+请确保回答简洁明了，重点突出，避免冗长。"""
+        
+        # 完整提示词
+        prompt = f"""你是{agent.name}，一位MBTI性格为{mbti}的专家，擅长{skills}。你的沟通风格{style}，语调{tone}，情绪{mood}。
+
+{role_instruct}
+
+请用300-400字左右回答用户的问题，回答结束时提供一个简短的结论。"""
+
+        print(f"正在为 {agent.name} 生成对用户问题的回答...")
+        
+        # 获取该代理的模型字符串
+        agent_model = os.getenv(f"MODEL_{agent.agent_id}", os.getenv("DEFAULT_MODEL", f"{DEFAULT_PROVIDER}:gpt-3.5-turbo"))
+        
+        # 解析模型字符串，获取提供商和模型名称
+        provider, model_name = parse_model_string(agent_model)
+        
+        try:
+            print(f"使用 {provider} 的 {model_name} 模型生成回应...")
+            answer = call_llm_api(
+                provider, 
+                model_name, 
+                prompt, 
+                max_tokens=int(os.getenv("MAX_TOKENS", "4000")),
+                temperature=float(os.getenv("TEMPERATURE", "0.7"))
+            )
+            return answer
+        except Exception as e:
+            error_msg = f"错误：无法生成回应 - {str(e)}"
+            print(error_msg)
+            return error_msg
+    
+    # 根据阶段名称构建提示语
+    elif "介绍" in phase_name:
+        role_instruct = "你是一名专家，正在一个圆桌会议上进行自我介绍。请简短介绍自己的背景和你将如何贡献于讨论。"
+    elif "讨论" in phase_name:
+        if is_follow_up:
+            role_instruct = f"""你是一名专家，参与了关于"{topic}"的多轮讨论，现在是第{round_number}轮。
+你需要：
+1. 直接回应之前专家的观点，指出你认同的部分和不同的见解
+2. 引入新的思考角度或证据支持你的观点
+3. 确保包含明确的结论和观点总结
+4. 避免重复之前已经充分讨论的内容
+5. 如果合适，提出1-2个有深度的问题引导下一阶段讨论
+6. 结论部分应当清晰、简洁且有见地"""
+        else:
+            role_instruct = f"你是一名专家，正在一个圆桌会议上讨论"{topic}"。请提供你专业的见解和观点。"
+    elif "分享" in phase_name:
+        role_instruct = f"你是一名专家，正在一个圆桌会议上分享你关于"{topic}"的知识和经验。"
+    elif "问答" in phase_name:
+        role_instruct = f"你是一名专家，正在一个圆桌会议上回答关于"{topic}"的问题。"
+    elif "风暴" in phase_name:
+        role_instruct = f"你是一名专家，正在一个头脑风暴会议中为"{topic}"提供创新思路和解决方案。"
+    elif "总结" in phase_name:
+        role_instruct = f"你是一名专家，正在总结这次关于"{topic}"的讨论的主要观点和达成的共识。"
     else:
-        prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 提供深入评论。
+        role_instruct = f"你是一名专家，正在一个圆桌会议上讨论"{topic}"。"
 
-你的评论需要：
-1. 开门见山地指出 {topic} 的核心价值或挑战
-2. 结合你的 {skills} 专业背景提供独特视角
-3. 引用相关研究、数据或案例支持你的观点
-4. 分析当前主流观点的局限性或盲点
-5. 提出创新性的思考方向或解决思路
+    # 构建对话历史上下文
+    context = ""
+    if previous_speech:
+        prev_agent_id = previous_speech.get("agent_id", "某位专家")
+        prev_speech = previous_speech.get("speech", "")
+        context = f"上一位发言的专家({prev_agent_id})说: {prev_speech}\n\n"
+        
+        # 如果是后续轮次，添加更多指导
+        if is_follow_up:
+            context += f"""
+作为后续讨论的专家，你应该：
+1. 简要参考并评价{prev_agent_id}的观点，而不是简单重复
+2. 对其他专家提出的问题给出你的见解
+3. 提供明确的论点和依据
+4. 在发言结束时，提供一个清晰的"结论"部分，总结你的核心观点
+5. 避免提出已经讨论过的基础问题，而是深入探讨更高层次的复杂问题
 
-请以 {tone} 的语调回答，避免空泛的表达和客套话。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+"""
+
+    # 根据专家特性构建角色描述
+    personality_desc = f"你是{agent.name}，一位MBTI性格为{mbti}的专家，擅长{skills}。你的沟通风格{style}，语调{tone}，情绪{mood}。"
+    
+    # 添加结论要求
+    conclusion_req = ""
+    if "讨论" in phase_name or "分享" in phase_name or "风暴" in phase_name:
+        conclusion_req = "\n\n请在发言的最后部分添加一个明确的"结论"段落，简洁有力地总结你的核心观点。"
+    
+    # 根据轮次调整回复长度
+    length_guide = ""
+    if round_number == 0:
+        length_guide = "请详细阐述你的观点，回应长度约400-600字。"
+    elif is_follow_up:
+        length_guide = "请简明扼要地表达你的观点，聚焦在新增价值上，回应长度约300-400字。"
+    
+    # 完整提示词
+    prompt = f"""{personality_desc}
+
+{role_instruct}
+
+{context}
+
+请基于你的专业背景和个性特点，围绕主题"{topic}"进行发言。{length_guide}{conclusion_req}"""
+
+    print(f"正在为 {agent.name} 生成发言...")
 
     # 获取该代理的模型字符串
     agent_model = os.getenv(f"MODEL_{agent.agent_id}", os.getenv("DEFAULT_MODEL", f"{DEFAULT_PROVIDER}:gpt-3.5-turbo"))
@@ -505,31 +526,106 @@ def manage_turn_taking(conference_id, phase_name, topic, agents):
     except (FileNotFoundError, json.JSONDecodeError):
         print(f"未找到现有对话历史或文件格式错误，将创建新的对话历史")
 
-    # 模拟两轮讨论
-    for _ in range(int(os.getenv("DISCUSSION_ROUNDS", "2"))):
-        for agent in available_agents:
-            previous_speech = dialogue_history[-1] if dialogue_history else None
-            
-            # 如果previous_speech是用户提问，我们需要确保代理看到提问和回答的上下文
-            if previous_speech and previous_speech.get("agent_id") == "用户" and len(dialogue_history) >= 2:
-                # 使用倒数第二条记录，也就是代理的回答
-                previous_speech = dialogue_history[-2]
+    # 从环境变量获取讨论轮数，默认为1
+    discussion_rounds = int(os.getenv("DISCUSSION_ROUNDS", "1"))
+    
+    # 模拟讨论轮数
+    for round_idx in range(discussion_rounds):
+        print(f"开始第 {round_idx + 1} 轮讨论...")
+        
+        # 第一轮：所有代理都发言
+        if round_idx == 0:
+            for agent in available_agents:
+                previous_speech = dialogue_history[-1] if dialogue_history else None
                 
-            speech = agent_speak(agent.agent_id, conference_id, phase_name, topic, previous_speech)
-            timestamp = datetime.now().isoformat()
-            dialogue_history.append({"agent_id": agent.agent_id, "speech": speech, "timestamp": timestamp})
-            
-            # 将对话历史保存到文件，用于实时流式传输
-            save_dialogue_history(dialogue_history, conference_id, conference.current_phase_index)
+                # 如果previous_speech是用户提问，我们需要确保代理看到提问和回答的上下文
+                if previous_speech and previous_speech.get("agent_id") == "用户" and len(dialogue_history) >= 2:
+                    # 使用倒数第二条记录，也就是代理的回答
+                    previous_speech = dialogue_history[-2]
+                    
+                speech = agent_speak(agent.agent_id, conference_id, phase_name, topic, previous_speech)
+                timestamp = datetime.now().isoformat()
+                dialogue_history.append({"agent_id": agent.agent_id, "speech": speech, "timestamp": timestamp})
                 
-            print(speech)
-        random.shuffle(available_agents)  # 为下一轮重新洗牌
+                # 保存对话历史
+                save_dialogue_history(dialogue_history, conference_id, conference.current_phase_index)
+        
+        # 第二轮及以后：只选择部分代理进行有针对性的回应
+        else:
+            # 计算每个代理的发言质量和信息量
+            agent_scores = {}
+            for agent in available_agents:
+                # 找到该代理在上一轮的发言
+                agent_speech = None
+                for entry in reversed(dialogue_history):
+                    if entry.get("agent_id") == agent.agent_id:
+                        agent_speech = entry
+                        break
+                
+                if agent_speech:
+                    # 简单评分：发言长度、问题数量、结论清晰度
+                    speech_text = agent_speech.get("speech", "")
+                    length_score = min(len(speech_text) / 500, 1.0)  # 长度评分，最高1分
+                    question_score = speech_text.count("?") * 0.2  # 每个问题0.2分
+                    conclusion_score = 1.0 if "总结" in speech_text or "结论" in speech_text else 0
+                    
+                    # 计算总分
+                    total_score = length_score + question_score + conclusion_score
+                    agent_scores[agent.agent_id] = total_score
+            
+            # 选择得分最高的前50%代理参与下一轮
+            num_to_select = max(2, len(available_agents) // 2)  # 至少选择2个代理
+            selected_agents = []
+            
+            # 如果有分数，根据分数选择
+            if agent_scores:
+                sorted_agents = sorted(agent_scores.items(), key=lambda x: x[1], reverse=True)
+                selected_agent_ids = [agent_id for agent_id, _ in sorted_agents[:num_to_select]]
+                selected_agents = [agent for agent in available_agents if agent.agent_id in selected_agent_ids]
+            else:
+                # 如果没有分数（异常情况），随机选择
+                selected_agents = random.sample(available_agents, num_to_select)
+            
+            print(f"第 {round_idx + 1} 轮选择了 {len(selected_agents)} 个代理发言")
+            
+            # 让选中的代理发言，强调要对之前的观点进行回应和总结
+            for agent in selected_agents:
+                # 获取前一个不是当前代理的发言作为上下文
+                previous_speeches = []
+                for entry in reversed(dialogue_history):
+                    if entry.get("agent_id") != agent.agent_id:
+                        previous_speeches.append(entry)
+                        if len(previous_speeches) >= 3:  # 获取最近3条其他代理的发言
+                            break
+                
+                # 最近的一条发言
+                previous_speech = previous_speeches[0] if previous_speeches else None
+                
+                # 指示代理提供更有针对性的回应和明确的结论
+                speech = agent_speak(agent.agent_id, conference_id, phase_name, topic, previous_speech, 
+                                    is_follow_up=True, round_number=round_idx+1)
+                
+                timestamp = datetime.now().isoformat()
+                dialogue_history.append({"agent_id": agent.agent_id, "speech": speech, "timestamp": timestamp})
+                
+                # 保存对话历史
+                save_dialogue_history(dialogue_history, conference_id, conference.current_phase_index)
 
     return dialogue_history
 
 # 代理发言的函数
-def agent_speak(agent_id, conference_id, phase_name, topic, previous_speech=None):
-    """为阶段生成并返回代理的发言。"""
+def agent_speak(agent_id, conference_id, phase_name, topic, previous_speech=None, is_follow_up=False, round_number=0):
+    """为阶段生成并返回代理的发言。
+    
+    Args:
+        agent_id: 代理ID
+        conference_id: 会议ID
+        phase_name: 阶段名称
+        topic: 讨论主题
+        previous_speech: 上一个发言，用于上下文
+        is_follow_up: 是否是后续轮次的回应
+        round_number: 当前轮次编号
+    """
     agent = get_agent(agent_id)
     if not agent:
         return f"代理 {agent_id} 未找到！"
@@ -538,7 +634,7 @@ def agent_speak(agent_id, conference_id, phase_name, topic, previous_speech=None
     if not conference:
         return f"未找到ID为 {conference_id} 的会议！"
 
-    return generate_agent_speech(agent, phase_name, topic, previous_speech)
+    return generate_agent_speech(agent, phase_name, topic, previous_speech, is_follow_up, round_number)
 
 # 用户干预的函数
 def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, user_input=None):
@@ -549,104 +645,56 @@ def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, u
         return False
 
     if phase_id < 0 or phase_id >= len(conference.agenda):
-        print(f"会议 '{conference.title}' 的阶段ID {phase_id} 无效！")
+        print(f"阶段ID无效：{phase_id}！")
         return False
 
+    # 获取当前阶段的主题和名称
     current_phase = conference.agenda[phase_id]
-    topic = current_phase["topics"][0]
-    phase_name = current_phase["phase_name"]
+    topic = current_phase.get("topics", [""])[0]
+    phase_name = current_phase.get("phase_name", "讨论")
 
+    # 加载现有对话历史
+    history_dir = "dialogue_histories"
+    history_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{phase_id}.json")
+    try:
+        with open(history_file, 'r', encoding='utf-8') as f:
+            dialogue_history = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        print(f"找不到对话历史文件 {history_file}")
+        dialogue_history = []
+
+    # 处理用户动作
     if user_action == "interrupt":
-        print(f"用户中断了关于 {topic} 的讨论。")
-        return True
-    elif user_action == "question" and target_agent_id and user_input:
-        agent = get_agent(target_agent_id)
-        if not agent:
-            print(f"代理 {target_agent_id} 未找到！")
-            return False
-
-        # 获取该代理的模型字符串
-        agent_model = os.getenv(f"MODEL_{target_agent_id}", os.getenv("DEFAULT_MODEL", f"{DEFAULT_PROVIDER}:gpt-3.5-turbo"))
-        
-        # 解析模型字符串，获取提供商和模型名称
-        provider, model_name = parse_model_string(agent_model)
-        
-        prompt = f"""作为 {agent.name}，请回答用户关于 {topic} 的问题："{user_input}"
-
-你的回答需要：
-1. 直接切入问题核心，避免不必要的铺垫
-2. 基于你的 {', '.join(agent.background_info.get('skills', []))} 专业背景，提供具体且全面的分析
-3. 引用相关研究、数据或案例支持你的观点
-4. 如可能，提出1-2个具体且可行的解决方案或建议
-5. 坦诚讨论可能的挑战、限制或不同观点
-
-请以 {agent.communication_style.get('tone', '中立')} 的语调回答，保持专业性的同时确保内容通俗易懂。
-请用中文回答，引用其他代理时请使用他们的名字而不是代号。
-限制在300字以内，保持内容丰富但简洁。"""
-        
-        try:
-            print(f"正在使用 {provider} 的 {model_name} 模型生成 {agent.name} 的回应...")
-            answer = call_llm_api(
-                provider, 
-                model_name, 
-                prompt, 
-                max_tokens=int(os.getenv("MAX_TOKENS", "4000")),
-                temperature=float(os.getenv("TEMPERATURE", "0.7"))
-            )
+        # 添加用户中断
+        timestamp = datetime.now().isoformat()
+        dialogue_history.append({"agent_id": "用户", "speech": f"用户打断：{user_input}", "timestamp": timestamp})
+    elif user_action == "question":
+        if target_agent_id and user_input:
+            # 添加用户问题
+            timestamp = datetime.now().isoformat()
+            dialogue_history.append({"agent_id": "用户", "speech": f"提问给{target_agent_id}：{user_input}", "timestamp": timestamp})
             
-            # 检查返回的结果是否包含错误信息
-            if answer.startswith("错误：") or answer.startswith("API 调用错误："):
-                raise Exception(answer)
+            # 目标代理回答
+            agent = get_agent(target_agent_id)
+            if agent:
+                # 创建一个特殊参数，指示代理这是对用户问题的回答
+                response = generate_agent_speech(
+                    agent, 
+                    phase_name, 
+                    topic, 
+                    {"agent_id": "用户", "speech": user_input}, 
+                    is_follow_up=True, 
+                    round_number=99  # 特殊值表示这是用户问题
+                )
+                timestamp = datetime.now().isoformat()
+                dialogue_history.append({"agent_id": target_agent_id, "speech": response, "timestamp": timestamp})
                 
-            # 替换代理ID为对应名称
-            conference_agents = [a.agent_id for a in list_agents()]
-            answer = get_referenced_agent_name(answer, conference_agents)
-        except Exception as e:
-            answer = f"错误：无法生成回应 ({str(e)})"
-
-        print(f"用户向 {agent.name} 提问：'{user_input}'")
-        print(f"{agent.name} 回应：{answer}")
-
-        # 添加到对话历史
-        history_dir = "dialogue_histories"
-        history_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{phase_id}.json")
-        old_history_file = f"dialogue_history_{conference_id}_{phase_id}.json"
-        
-        try:
-            # 先尝试从新位置加载
-            if os.path.exists(history_file):
-                with open(history_file, "r", encoding='utf-8') as f:
-                    history = json.load(f)
-            # 再尝试从旧位置加载
-            elif os.path.exists(old_history_file):
-                with open(old_history_file, "r", encoding='utf-8') as f:
-                    history = json.load(f)
-                # 将旧文件移动到新位置
-                if not os.path.exists(history_dir):
-                    os.makedirs(history_dir)
-                shutil.move(old_history_file, history_file)
+                # 更新对话历史
+                save_dialogue_history(dialogue_history, conference_id, phase_id)
+                return True
             else:
-                history = []
-        except (FileNotFoundError, json.JSONDecodeError):
-            history = []
-        
-        # 添加用户提问作为对话历史的一部分
-        timestamp = datetime.now().isoformat()
-        user_question_entry = {
-            "agent_id": "用户", 
-            "speech": f"提问给 {agent.name}: {user_input}", 
-            "timestamp": timestamp
-        }
-        history.append(user_question_entry)
-        
-        # 添加代理回答
-        timestamp = datetime.now().isoformat()
-        history.append({"agent_id": target_agent_id, "speech": answer, "timestamp": timestamp})
-        
-        # 保存更新后的对话历史
-        save_dialogue_history(history, conference_id, phase_id)
-        
-        return answer
+                print(f"找不到代理 {target_agent_id}！")
+                return False
     else:
         print("无效的干预操作！")
         return False
