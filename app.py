@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Request, Form, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import sqlite3
 import json
+import logging
 from round_table import start_phase_discussion, user_intervene, get_agent_name_by_id
 from conference_organizer import (
     create_conference, start_conference, advance_phase, 
@@ -22,6 +23,15 @@ from version import get_version, get_version_info
 from db_migrations import run_migrations
 import os
 import random
+import uuid
+import shutil
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("roundtable")
 
 app = FastAPI(title="RoundTable对话系统", version=get_version())
 
@@ -120,66 +130,122 @@ async def get_api_version():
 
 # 获取所有对话历史文件列表
 @app.get("/api/dialogue_histories")
-async def list_dialogue_histories():
-    """返回所有对话历史文件的列表"""
-    try:
-        files = [f for f in os.listdir() if f.startswith('dialogue_history_') and f.endswith('.json')]
-        result = []
+async def get_dialogue_histories():
+    # 首先检查旧位置的文件
+    old_files = []
+    if os.path.exists("."):
+        old_files = [f for f in os.listdir(".") if f.startswith("dialogue_history_") and f.endswith(".json")]
+    
+    # 确保新目录存在
+    histories_dir = "dialogue_histories"
+    if not os.path.exists(histories_dir):
+        os.makedirs(histories_dir)
+    
+    # 获取新目录中的文件
+    new_files = []
+    if os.path.exists(histories_dir):
+        new_files = [f for f in os.listdir(histories_dir) if f.startswith("dialogue_history_") and f.endswith(".json")]
+    
+    # 合并文件列表，并移动旧文件到新目录
+    files = []
+    for filename in old_files:
+        # 如果文件不在新目录中，移动它
+        if filename not in new_files:
+            try:
+                shutil.move(filename, os.path.join(histories_dir, filename))
+                files.append(filename)
+            except Exception as e:
+                print(f"移动文件 {filename} 时出错: {str(e)}")
+        else:
+            files.append(filename)
+    
+    # 添加新目录中的文件
+    for filename in new_files:
+        if filename not in files:
+            files.append(filename)
+    
+    histories = []
+    
+    for filename in files:
+        # 确定文件的完整路径
+        if os.path.exists(os.path.join(histories_dir, filename)):
+            file_path = os.path.join(histories_dir, filename)
+        else:
+            file_path = filename  # 以防文件仍然在旧位置
         
-        for file in files:
-            # 从文件名解析会议ID和阶段
-            parts = file.replace('dialogue_history_', '').replace('.json', '').split('_')
-            if len(parts) >= 2:
-                conference_id = parts[0]
-                phase_id = parts[1]
-                
-                # 获取文件大小和修改时间
-                file_stats = os.stat(file)
-                size_kb = file_stats.st_size / 1024
-                mod_time = datetime.fromtimestamp(file_stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-                
-                # 尝试获取会议标题
-                conference_title = None
-                try:
-                    conference = get_conference(conference_id)
-                    if conference:
-                        conference_title = conference.title
-                except:
-                    pass
-                
-                result.append({
-                    "filename": file,
-                    "conference_id": conference_id,
-                    "phase_id": phase_id,
-                    "conference_title": conference_title,
-                    "size_kb": round(size_kb, 2),
-                    "modified": mod_time
-                })
+        if not os.path.exists(file_path):
+            continue  # 跳过不存在的文件
+            
+        file_stats = os.stat(file_path)
+        modified_time = datetime.fromtimestamp(file_stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         
-        # 按修改时间倒序排序
-        result.sort(key=lambda x: x["modified"], reverse=True)
-        return result
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        # 从文件名中提取会议ID和阶段ID
+        # 文件名格式: dialogue_history_[会议ID]_[阶段ID].json
+        parts = filename.replace("dialogue_history_", "").replace(".json", "").split("_")
+        if len(parts) >= 2:
+            conference_id = parts[0]
+            phase_id = parts[1]
+            
+            # 尝试获取会议标题和会议类型
+            conference_title = "未知会议"
+            conference_type = "未分类"
+            try:
+                conference = get_conference(conference_id)
+                if conference:
+                    conference_title = conference.title
+                    conference_type = getattr(conference, 'conference_type', '未分类')
+            except Exception as e:
+                print(f"获取会议 {conference_id} 时出错: {str(e)}")
+            
+            histories.append({
+                "filename": filename,
+                "conference_id": conference_id,
+                "phase_id": phase_id,
+                "size_kb": round(file_stats.st_size / 1024, 2),
+                "modified": modified_time,
+                "conference_title": conference_title,
+                "conference_type": conference_type
+            })
+    
+    # 按修改时间降序排序
+    histories.sort(key=lambda x: x["modified"], reverse=True)
+    
+    return histories
 
 # 删除对话历史文件
 @app.delete("/api/dialogue_histories/{filename}")
 async def delete_dialogue_history(filename: str):
-    """删除指定的对话历史文件"""
-    try:
-        # 安全检查：确保文件名以dialogue_history_开头并以.json结尾
-        if not (filename.startswith('dialogue_history_') and filename.endswith('.json')):
-            return JSONResponse(content={"error": "无效的文件名格式"}, status_code=400)
-        
-        # 检查文件是否存在
-        if not os.path.exists(filename):
-            return JSONResponse(content={"error": "文件不存在"}, status_code=404)
-        
-        # 删除文件
-        os.remove(filename)
-        return {"success": True, "message": f"文件 {filename} 已成功删除"}
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+    histories_dir = "dialogue_histories"
+    
+    # 检查文件是否在新位置
+    new_path = os.path.join(histories_dir, filename)
+    
+    # 检查文件是否在旧位置
+    old_path = filename
+    
+    if os.path.exists(new_path):
+        try:
+            os.remove(new_path)
+            return {"message": f"文件 {filename} 已成功删除"}
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"删除文件失败: {str(e)}"}
+            )
+    elif os.path.exists(old_path):
+        try:
+            os.remove(old_path)
+            return {"message": f"文件 {filename} 已成功删除"}
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"删除文件失败: {str(e)}"}
+            )
+    else:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"文件 {filename} 不存在"}
+        )
 
 # WebSocket路由
 @app.websocket("/ws/{conference_id}")
@@ -302,71 +368,182 @@ async def agent_management_page(request: Request):
         "version": VERSION_INFO
     })
 
+# 数据库管理器类
+class DatabaseManager:
+    def __init__(self):
+        # 确保数据库已初始化
+        init_agent_db()
+    
+    def get_all_agents(self):
+        """获取所有专家并转换为可JSON序列化的字典格式"""
+        agents = list_agents()
+        # 将Agent对象转换为字典
+        return [
+            {
+                "agent_id": agent.agent_id,
+                "name": agent.name,
+                "background_info": agent.background_info,
+                "personality_traits": agent.personality_traits,
+                "knowledge_base_links": agent.knowledge_base_links,
+                "communication_style": agent.communication_style
+            }
+            for agent in agents
+        ]
+    
+    def get_agent(self, agent_id):
+        """获取特定专家"""
+        from agent_db import get_agent
+        agent = get_agent(agent_id)
+        if agent:
+            # 将Agent对象转换为字典
+            return {
+                "agent_id": agent.agent_id,
+                "name": agent.name,
+                "background_info": agent.background_info,
+                "personality_traits": agent.personality_traits,
+                "knowledge_base_links": agent.knowledge_base_links,
+                "communication_style": agent.communication_style
+            }
+        return None
+
+# 创建数据库管理器实例
+db_manager = DatabaseManager()
+
+def generate_agenda(topic):
+    """
+    根据会议主题生成会议议程
+    
+    Args:
+        topic (str): 会议主题
+    
+    Returns:
+        list: 包含多个阶段的议程列表，每个阶段包含phase_name和topics
+    """
+    # 定义可能的阶段类型
+    phase_types = [
+        "开场介绍",
+        "主题讨论",
+        "专家分享",
+        "问题解答",
+        "头脑风暴",
+        "总结展望"
+    ]
+    
+    # 尝试从agenda.json加载模板
+    try:
+        with open("agenda.json", "r", encoding="utf-8") as f:
+            template = json.load(f)
+            # 确保模板使用phase_name而不是phase_type
+            for phase in template:
+                if "phase_type" in phase and "phase_name" not in phase:
+                    phase["phase_name"] = phase.pop("phase_type")
+                
+                # 重要：替换topics中的默认主题为用户输入的主题
+                if "topics" in phase:
+                    phase["topics"] = [topic]
+    except (FileNotFoundError, json.JSONDecodeError):
+        # 如果无法加载模板，创建默认议程
+        template = [
+            {"phase_name": "开场介绍", "topics": [f"{topic}概述"]},
+            {"phase_name": "主题讨论", "topics": [topic]},
+            {"phase_name": "专家分享", "topics": [f"{topic}的最佳实践"]},
+            {"phase_name": "总结展望", "topics": [f"{topic}未来发展"]}
+        ]
+    
+    # 根据主题自定义议程
+    agenda = []
+    for phase in template:
+        new_phase = phase.copy()
+        
+        # 确保每个阶段都有topics字段
+        if "topics" not in new_phase:
+            new_phase["topics"] = [topic]
+        
+        # 将主题融入到topics中
+        new_topics = []
+        for t in new_phase["topics"]:
+            if "{topic}" in t:
+                new_topics.append(t.format(topic=topic))
+            else:
+                # 如果不是格式化字符串，直接使用用户输入的主题
+                new_topics.append(topic)
+        
+        new_phase["topics"] = new_topics
+        agenda.append(new_phase)
+    
+    # 如果议程太短，添加更多阶段
+    if len(agenda) < 3:
+        unused_phases = [p for p in phase_types if p not in [phase["phase_name"] for phase in agenda]]
+        while len(agenda) < 3 and unused_phases:
+            phase_name = random.choice(unused_phases)
+            unused_phases.remove(phase_name)
+            agenda.append({
+                "phase_name": phase_name,
+                "topics": [f"{topic}相关的{phase_name}"]
+            })
+    
+    return agenda
+
 # 启动新会议
 @app.post("/start_conference", response_class=HTMLResponse)
 async def start_new_conference(request: Request):
+    form_data = await request.form()
+    topic = form_data.get("topic", "")
+    conference_title = form_data.get("conference_title", "")
+    num_agents_str = form_data.get("num_agents", "5")
+    conference_type = form_data.get("conference_type", "战略讨论")  # 获取会议类型
+    
     try:
-        # 从表单数据获取信息
-        form_data = await request.form()
-        conference_title = form_data.get('conference_title', '').strip()
-        num_agents = form_data.get('num_agents', '5')
-        topic = form_data.get('topic', '').strip()
+        num_agents = int(num_agents_str)
+    except ValueError:
+        num_agents = 5  # 默认值
+    
+    try:
+        # 生成动态议程
+        agenda = generate_agenda(topic)
         
-        if not topic:
-            raise ValueError("讨论主题不能为空")
+        # 检查是否有足够的 agent 可用
+        available_agents = db_manager.get_all_agents()
+        if len(available_agents) < num_agents:
+            error_html = templates.get_template("error.html").render(
+                request=request,
+                error_title="专家数量不足",
+                error_message=f"需要 {num_agents} 位专家，但只找到 {len(available_agents)} 位。请先添加更多专家。",
+                version=get_version()
+            )
+            return HTMLResponse(content=error_html)
         
-        # 根据用户输入的主题自动生成议程
-        agenda = [
-            {
-                "phase_name": "讨论阶段",
-                "topics": [topic],
-                "instructions": f"讨论关于'{topic}'的各种观点和见解"
-            },
-            {
-                "phase_name": "总结阶段",
-                "topics": ["总结前面的讨论"],
-                "instructions": "总结前面讨论的主要观点，并提出综合性结论"
-            }
-        ]
+        # 生成 conference ID
+        conference_id = f"C{str(uuid.uuid4())[:8]}"
         
-        # 获取适当数量的随机代理
-        agents = list_agents()
-        if len(agents) < int(num_agents):
-            raise ValueError(f"系统中只有{len(agents)}个专家可用，无法创建需要{num_agents}个专家的会议")
-        
-        # 随机选择指定数量的代理
-        selected_agents = random.sample(agents, int(num_agents))
-        agent_ids = [agent.agent_id for agent in selected_agents]
-        
-        # 生成会议ID
-        conference_id = f"C{len(list_conferences()) + 1:03d}"
-        
-        # 如果用户没有提供标题，则生成标题
+        # 如果没有指定标题，使用默认标题
         if not conference_title:
-            current_date = datetime.now().strftime("%Y-%m-%d")
-            conference_title = f"{current_date} - {topic}"
-            
-        conference = create_conference(conference_id, conference_title, agenda, agent_ids)
+            today = datetime.now().strftime("%Y-%m-%d")
+            conference_title = f"{today}会议：{topic[:20]}{'...' if len(topic) > 20 else ''}"
+        
+        # 创建会议
+        conference = create_conference(
+            conference_id=conference_id,
+            title=conference_title,
+            topic=topic,
+            num_agents=num_agents,
+            conference_type=conference_type  # 添加会议类型
+        )
+        
+        # 启动会议
         start_conference(conference_id)
         
-        # 从数据库获取当前阶段的对话历史（与manage_conference保持一致）
-        conn = sqlite3.connect('conversations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT agent_id, speech, timestamp FROM conversations WHERE conference_id = ? AND phase_id = ?', 
-                       (conference_id, conference.current_phase_index))
-        dialogue = [{"agent_id": row[0], "speech": row[1], "timestamp": row[2]} for row in cursor.fetchall()]
-        conn.close()
-        
-        return templates.TemplateResponse("conference.html", {
-            "request": request, 
-            "conference": conference,
-            "agents": agents,  # 添加所有代理
-            "dialogue": dialogue  # 添加对话历史
-        })
-    except ValueError as e:
-        return HTMLResponse(f"错误：{str(e)}", status_code=400)
+        # 重定向到会议页面
+        return RedirectResponse(url=f"/conference/{conference_id}", status_code=303)
     except Exception as e:
-        return HTMLResponse(f"系统错误：{str(e)}", status_code=500)
+        logger.error(f"Error in start_new_conference: {str(e)}")
+        error_html = templates.get_template("error.html").render(
+            request=request,
+            error_title="会议创建失败",
+            error_message=str(e),
+            version=get_version()
+        )
+        return HTMLResponse(content=error_html)
 
 # 管理特定会议
 @app.get("/conference/{conference_id}", response_class=HTMLResponse)

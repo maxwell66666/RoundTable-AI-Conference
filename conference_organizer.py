@@ -5,7 +5,7 @@ from agent_db import get_agent, list_agents, get_random_agents
 
 # 定义 Conference 类
 class Conference:
-    def __init__(self, conference_id, title, agenda, participant_agent_ids, current_phase_index=-1):
+    def __init__(self, conference_id, title, agenda, participant_agent_ids, current_phase_index=-1, conference_type="战略讨论"):
         self.conference_id = conference_id
         self.title = title
         self.agenda = agenda  # 包含摘要的阶段字典列表
@@ -14,6 +14,7 @@ class Conference:
         self.end_time = None
         self.summary = None
         self.current_phase_index = current_phase_index  # 现在保存到数据库
+        self.conference_type = conference_type  # 会议类型
 
 def with_db_connection(func):
     """数据库连接装饰器，自动管理连接和事务"""
@@ -49,7 +50,8 @@ def _save_conference(conference, conn=None):
             start_time = ?,
             end_time = ?,
             summary = ?,
-            current_phase_index = ?
+            current_phase_index = ?,
+            conference_type = ?
         WHERE conference_id = ?
     ''', (
         conference.title,
@@ -59,6 +61,7 @@ def _save_conference(conference, conn=None):
         conference.end_time,
         conference.summary,
         conference.current_phase_index,
+        conference.conference_type,
         conference.conference_id
     ))
 
@@ -68,22 +71,31 @@ def init_conference_db(conn):
     """初始化会议数据库表结构"""
     cursor = conn.cursor()
     
+    # 检查是否需要添加conference_type列
+    cursor.execute("PRAGMA table_info(conferences)")
+    columns = [row[1] for row in cursor.fetchall()]
+    
     # 创建会议表（带NOT NULL约束）
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS conferences (
-            conference_id TEXT PRIMARY KEY NOT NULL,
-            title TEXT NOT NULL,
-            agenda TEXT NOT NULL,
-            participant_agent_ids TEXT NOT NULL,
-            start_time TEXT,
-            end_time TEXT,
-            summary TEXT,
-            current_phase_index INTEGER DEFAULT -1 NOT NULL
-        )
-    ''')
+    if not 'conferences' in [table[0] for table in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS conferences (
+                conference_id TEXT PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL,
+                agenda TEXT NOT NULL,
+                participant_agent_ids TEXT NOT NULL,
+                start_time TEXT,
+                end_time TEXT,
+                summary TEXT,
+                current_phase_index INTEGER DEFAULT -1 NOT NULL,
+                conference_type TEXT DEFAULT '战略讨论' NOT NULL
+            )
+        ''')
+    elif 'conference_type' not in columns:
+        # 如果表已存在但缺少conference_type列，添加它
+        cursor.execute('ALTER TABLE conferences ADD COLUMN conference_type TEXT DEFAULT "战略讨论" NOT NULL')
 
 @with_db_connection
-def create_conference(conference_id, title, agenda, participant_agent_ids, conn):
+def create_conference(conference_id, title, topic, num_agents, conference_type="战略讨论", conn=None):
     cursor = conn.cursor()
     
     # 检查会议是否已存在
@@ -91,23 +103,34 @@ def create_conference(conference_id, title, agenda, participant_agent_ids, conn)
     if cursor.fetchone():
         raise ValueError(f"会议ID {conference_id} 已存在")
 
-    # 验证代理ID
-    for agent_id in participant_agent_ids:
-        if not get_agent(agent_id):
-            raise ValueError(f"代理ID {agent_id} 不存在")
-
+    # 生成议程
+    from app import generate_agenda
+    agenda = generate_agenda(topic)
+    
+    # 获取随机代理
+    agent_ids = get_random_agents(num_agents)
+    
     # 创建并保存会议对象
-    conference = Conference(conference_id, title, agenda, participant_agent_ids)
+    conference = Conference(conference_id, title, agenda, agent_ids, -1, conference_type)
+    
+    # 确保表中有conference_type列
+    cursor.execute("PRAGMA table_info(conferences)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if 'conference_type' not in columns:
+        cursor.execute('ALTER TABLE conferences ADD COLUMN conference_type TEXT DEFAULT "战略讨论" NOT NULL')
+    
+    # 插入会议数据
     cursor.execute('''
         INSERT INTO conferences 
-        (conference_id, title, agenda, participant_agent_ids, current_phase_index)
-        VALUES (?, ?, ?, ?, ?)
+        (conference_id, title, agenda, participant_agent_ids, current_phase_index, conference_type)
+        VALUES (?, ?, ?, ?, ?, ?)
     ''', (
         conference.conference_id,
         conference.title,
         json.dumps(conference.agenda),
         json.dumps(conference.participant_agent_ids),
-        conference.current_phase_index
+        conference.current_phase_index,
+        conference.conference_type
     ))
 
     print(f"会议 '{conference.title}' 创建成功！")
@@ -137,13 +160,17 @@ def get_conference(conference_id, conn):
     row = cursor.fetchone()
 
     if row:
+        # 检查是否有会议类型字段
+        conference_type = row[8] if len(row) > 8 else "战略讨论"
         current_phase_index = row[7] if len(row) > 7 else -1
+        
         conference = Conference(
             row[0],  # conference_id
             row[1],  # title
             json.loads(row[2]),  # agenda
             json.loads(row[3]),  # participant_agent_ids
-            current_phase_index  # current_phase_index (默认 -1 如果缺失)
+            current_phase_index,  # current_phase_index (默认 -1 如果缺失)
+            conference_type  # conference_type
         )
         conference.start_time = row[4]
         conference.end_time = row[5]

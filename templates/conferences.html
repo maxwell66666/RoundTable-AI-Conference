@@ -73,47 +73,86 @@
                 <p class="page-subtitle">查看并管理所有RoundTable会议，包括进行中和已结束的会议。</p>
             </div>
             
-            <!-- 会议卡片网格 -->
+            <!-- 会议列表 -->
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title">所有会议</h2>
                 </div>
                 <div class="card-body">
                     {% if conferences %}
-                        <div class="grid">
-                            {% for conf in conferences %}
-                            <div class="conference-card animate-fade-in">
-                                <div class="conference-card-header">
-                                    {{ conf.title }}
-                                </div>
-                                <div class="conference-card-body">
-                                    <div class="conference-meta">
-                                        <span><i class="ri-hashtag-line"></i> {{ conf.conference_id }}</span>
-                                        <span><i class="ri-stack-line"></i> 阶段 {{ conf.current_phase_index + 1 }}/{{ conf.agenda|length }}</span>
-                                    </div>
-                                    <div class="conference-meta">
-                                        <span><i class="ri-user-line"></i> {{ conf.participant_agent_ids|length }} 位专家</span>
-                                    </div>
-                                    <div class="conference-status {% if conf.end_time %}completed{% else %}active{% endif %}">
-                                        {% if conf.end_time %}已结束{% else %}进行中{% endif %}
-                                    </div>
-                                    <div class="card-actions">
-                                        <a href="/conference/{{ conf.conference_id }}" class="btn">
-                                            <i class="ri-login-box-line btn-icon"></i>
-                                            进入会议
-                                        </a>
-                                        <button class="btn btn-danger btn-sm" onclick="confirmDeleteConference('{{ conf.conference_id }}', '{{ conf.title }}', this)">
-                                            <i class="ri-delete-bin-line"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="conference-card-footer">
-                                    {% if conf.start_time %}
-                                    <i class="ri-time-line"></i> 开始于: {{ conf.start_time.split('T')[0] }} {{ conf.start_time.split('T')[1].split('.')[0] }}
-                                    {% endif %}
-                                </div>
+                        <!-- 工具栏 -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <div style="color: var(--text-medium); font-size: 0.9rem;">
+                                <i class="ri-information-line"></i> 此处显示所有会议，您可以进入或删除会议。
                             </div>
-                            {% endfor %}
+                        </div>
+                        
+                        <!-- 会议表格 -->
+                        <div class="table-responsive">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width: 8%">会议ID</th>
+                                        <th style="width: 25%">会议标题</th>
+                                        <th style="width: 12%">会议类型</th>
+                                        <th style="width: 10%">专家数量</th>
+                                        <th style="width: 10%">阶段进度</th>
+                                        <th style="width: 15%">状态</th>
+                                        <th style="width: 20%">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for conf in conferences %}
+                                    <tr>
+                                        <td>{{ conf.conference_id }}</td>
+                                        <td>
+                                            <strong>{{ conf.title }}</strong>
+                                            {% if conf.start_time %}
+                                            <div style="font-size: 0.85rem; color: var(--text-medium); margin-top: 3px;">
+                                                <i class="ri-time-line"></i> {{ conf.start_time.split('T')[0] }} {{ conf.start_time.split('T')[1].split('.')[0] }}
+                                            </div>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <span style="display: inline-block; padding: 4px 10px; border-radius: 12px; background-color: 
+                                            {% if conf.conference_type == '战略讨论' %}var(--primary-color)
+                                            {% elif conf.conference_type == '技术评审' %}var(--success-color)
+                                            {% elif conf.conference_type == '头脑风暴' %}var(--warning-color)
+                                            {% elif conf.conference_type == '项目计划' %}var(--info-color)
+                                            {% elif conf.conference_type == '总结回顾' %}var(--secondary-color)
+                                            {% else %}var(--primary-color){% endif %}; 
+                                            color: white; font-size: 0.85rem; text-align: center; white-space: nowrap;">
+                                                {{ conf.conference_type or '战略讨论' }}
+                                            </span>
+                                        </td>
+                                        <td>{{ conf.participant_agent_ids|length }} 位专家</td>
+                                        <td>
+                                            <div style="display: flex; align-items: center;">
+                                                <div style="flex-grow: 1; height: 6px; background-color: rgba(0,0,0,0.05); border-radius: 3px; margin-right: 8px;">
+                                                    <div style="width: {{ (conf.current_phase_index + 1) / conf.agenda|length * 100 }}%; height: 100%; border-radius: 3px; background-color: var(--primary-color);"></div>
+                                                </div>
+                                                <span style="white-space: nowrap; font-size: 0.85rem;">{{ conf.current_phase_index + 1 }}/{{ conf.agenda|length }}</span>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge {% if conf.end_time %}status-completed{% else %}status-active{% endif %}">
+                                                {% if conf.end_time %}已结束{% else %}进行中{% endif %}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div class="action-buttons">
+                                                <a href="/conference/{{ conf.conference_id }}" class="btn btn-sm">
+                                                    <i class="ri-login-box-line"></i> 进入
+                                                </a>
+                                                <button class="btn btn-danger btn-sm" onclick="confirmDeleteConference('{{ conf.conference_id }}', '{{ conf.title }}', this)">
+                                                    <i class="ri-delete-bin-line"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
                         </div>
                     {% else %}
                         <div class="empty-state">
@@ -145,6 +184,17 @@
                     <div class="form-group">
                         <label for="conference_title">会议标题</label>
                         <input type="text" id="conference_title" name="conference_title" placeholder="例如：产品战略研讨会">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="conference_type">会议类型</label>
+                        <select id="conference_type" name="conference_type">
+                            <option value="战略讨论" selected>战略讨论</option>
+                            <option value="技术评审">技术评审</option>
+                            <option value="头脑风暴">头脑风暴</option>
+                            <option value="项目计划">项目计划</option>
+                            <option value="总结回顾">总结回顾</option>
+                        </select>
                     </div>
                     
                     <div class="form-group">
@@ -189,6 +239,40 @@
             </div>
         </div>
     </div>
+
+    <style>
+        /* 表格响应式样式 */
+        .table-responsive {
+            overflow-x: auto;
+            width: 100%;
+        }
+        
+        /* 状态徽章 */
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-align: center;
+        }
+        
+        .status-active {
+            background-color: rgba(140, 165, 160, 0.15);
+            color: var(--success-color);
+        }
+        
+        .status-completed {
+            background-color: rgba(165, 127, 120, 0.15);
+            color: var(--danger-color);
+        }
+        
+        /* 操作按钮 */
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+    </style>
 
     <script>
         // 侧边栏切换

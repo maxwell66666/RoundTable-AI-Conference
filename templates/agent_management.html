@@ -454,6 +454,45 @@
                 closeDeleteModal();
             }
         });
+
+        // 创建会议类型过滤器
+        function createConferenceTypeFilters(conferenceTypes) {
+            const filtersEl = document.getElementById('conference-filters');
+            
+            // 添加"全部"按钮
+            const allButton = document.createElement('button');
+            allButton.className = 'btn btn-sm';
+            allButton.style.backgroundColor = 'var(--primary-color)';
+            allButton.textContent = '全部';
+            allButton.onclick = () => filterByConferenceType(null, allButton);
+            allButton.id = 'filter-all';
+            filtersEl.appendChild(allButton);
+            
+            // 为每个会议类型添加一个过滤按钮，使用不同颜色
+            const typeColors = {
+                '战略讨论': 'var(--primary-color)',
+                '技术评审': 'var(--success-color)',
+                '头脑风暴': 'var(--warning-color)',
+                '项目计划': 'var(--info-color)',
+                '总结回顾': 'var(--secondary-color)'
+            };
+            
+            conferenceTypes.forEach(type => {
+                const button = document.createElement('button');
+                button.className = 'btn btn-outline btn-sm';
+                button.textContent = type;
+                button.onclick = () => filterByConferenceType(type, button);
+                button.id = `filter-type-${type}`;
+                
+                // 设置特定类型的颜色
+                if (typeColors[type]) {
+                    button.style.borderColor = typeColors[type];
+                    button.style.color = typeColors[type];
+                }
+                
+                filtersEl.appendChild(button);
+            });
+        }
     </script>
 </body>
 </html> 

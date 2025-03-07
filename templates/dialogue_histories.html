@@ -114,9 +114,10 @@
                             <tr>
                                 <th style="width: 10%">会议ID</th>
                                 <th style="width: 8%">阶段</th>
-                                <th style="width: 35%">会议标题</th>
+                                <th style="width: 15%">会议类型</th>
+                                <th style="width: 22%">会议标题</th>
                                 <th style="width: 10%">大小(KB)</th>
-                                <th style="width: 22%">修改时间</th>
+                                <th style="width: 20%">修改时间</th>
                                 <th style="width: 15%">操作</th>
                             </tr>
                         </thead>
@@ -188,6 +189,14 @@
         let allHistories = [];
         // 存储所有唯一的会议ID
         let uniqueConferenceIds = [];
+        // 定义会议类型颜色
+        const typeColors = {
+            '战略讨论': 'var(--primary-color)',
+            '技术评审': 'var(--success-color)',
+            '头脑风暴': 'var(--warning-color)',
+            '项目计划': 'var(--info-color)',
+            '总结回顾': 'var(--secondary-color)'
+        };
         
         // 删除确认对话框
         const deleteModal = document.getElementById('delete-confirm-modal');
@@ -244,11 +253,11 @@
                     // 保存所有历史记录数据
                     allHistories = data;
                     
-                    // 提取所有唯一的会议ID
-                    uniqueConferenceIds = [...new Set(data.map(h => h.conference_id))];
+                    // 提取所有唯一的会议类型
+                    let conferenceTypes = [...new Set(data.map(h => h.conference_type || '未分类'))];
                     
-                    // 创建会议ID过滤器
-                    createConferenceFilters(uniqueConferenceIds);
+                    // 创建会议类型过滤器
+                    createConferenceTypeFilters(conferenceTypes);
                     
                     // 显示历史记录
                     displayHistories(data);
@@ -261,8 +270,8 @@
                 });
         }
         
-        // 创建会议ID过滤器
-        function createConferenceFilters(conferenceIds) {
+        // 创建会议类型过滤器
+        function createConferenceTypeFilters(conferenceTypes) {
             const filtersEl = document.getElementById('conference-filters');
             
             // 添加"全部"按钮
@@ -270,23 +279,30 @@
             allButton.className = 'btn btn-sm';
             allButton.style.backgroundColor = 'var(--primary-color)';
             allButton.textContent = '全部';
-            allButton.onclick = () => filterByConferenceId(null, allButton);
+            allButton.onclick = () => filterByConferenceType(null, allButton);
             allButton.id = 'filter-all';
             filtersEl.appendChild(allButton);
             
-            // 为每个会议ID添加一个过滤按钮
-            conferenceIds.forEach(id => {
+            // 为每个会议类型添加一个过滤按钮，使用不同颜色
+            conferenceTypes.forEach(type => {
                 const button = document.createElement('button');
                 button.className = 'btn btn-outline btn-sm';
-                button.textContent = `会议 ${id}`;
-                button.onclick = () => filterByConferenceId(id, button);
-                button.id = `filter-${id}`;
+                button.textContent = type;
+                button.onclick = () => filterByConferenceType(type, button);
+                button.id = `filter-type-${type}`;
+                
+                // 设置特定类型的颜色
+                if (typeColors[type]) {
+                    button.style.borderColor = typeColors[type];
+                    button.style.color = typeColors[type];
+                }
+                
                 filtersEl.appendChild(button);
             });
         }
         
-        // 按会议ID过滤历史记录
-        function filterByConferenceId(conferenceId, buttonElement) {
+        // 按会议类型过滤历史记录
+        function filterByConferenceType(conferenceType, buttonElement) {
             // 更新按钮样式
             document.querySelectorAll('#conference-filters button').forEach(btn => {
                 if (btn.id === 'filter-all') {
@@ -304,15 +320,15 @@
                 buttonElement.className = 'btn btn-sm';
             } else {
                 buttonElement.className = 'btn btn-sm';
-                buttonElement.style.backgroundColor = 'var(--primary-color)';
+                buttonElement.style.backgroundColor = typeColors[conferenceType] || 'var(--primary-color)';
             }
             
             // 清空搜索框
             document.getElementById('search-input').value = '';
             
             // 过滤数据
-            if (conferenceId) {
-                const filteredHistories = allHistories.filter(h => h.conference_id === conferenceId);
+            if (conferenceType) {
+                const filteredHistories = allHistories.filter(h => (h.conference_type || '未分类') === conferenceType);
                 displayHistories(filteredHistories);
             } else {
                 // 显示全部
@@ -344,9 +360,17 @@
                     // 创建简化的文件名显示
                     let displayName = history.filename.replace('dialogue_history_', '').replace('.json', '');
                     
+                    // 设置会议类型的标签颜色
+                    const typeColor = typeColors[history.conference_type] || 'var(--text-medium)';
+                    
                     row.innerHTML = `
                         <td>${history.conference_id}</td>
                         <td>${history.phase_id}</td>
+                        <td>
+                            <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; background-color: ${typeColor}; color: white; font-size: 0.85rem;">
+                                ${history.conference_type || '未分类'}
+                            </span>
+                        </td>
                         <td>${history.conference_title || '未知会议'}</td>
                         <td>${history.size_kb}</td>
                         <td>${history.modified}</td>

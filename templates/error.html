@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>错误 - RoundTable会议系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/main.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>RoundTable</h1>
+            </div>
+            <div class="sidebar-nav">
+                <a href="/" class="nav-item">
+                    <i class="ri-dashboard-line"></i>
+                    <span>首页</span>
+                </a>
+                <a href="/conferences" class="nav-item">
+                    <i class="ri-calendar-event-line"></i>
+                    <span>会议管理</span>
+                </a>
+                <a href="/dialogue_histories" class="nav-item">
+                    <i class="ri-message-3-line"></i>
+                    <span>对话历史</span>
+                </a>
+                <a href="/agent" class="nav-item">
+                    <i class="ri-user-line"></i>
+                    <span>专家管理</span>
+                </a>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">系统</div>
+                    <a href="#" class="nav-item">
+                        <i class="ri-settings-3-line"></i>
+                        <span>系统设置</span>
+                    </a>
+                    <a href="https://github.com/yourusername/RoundTable" target="_blank" class="nav-item">
+                        <i class="ri-github-line"></i>
+                        <span>文档</span>
+                    </a>
+                </div>
+            </div>
+            <div class="sidebar-footer">
+                版本 {{ version.version }}
+            </div>
+        </aside>
+        
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <button class="sidebar-toggle" id="sidebar-toggle">
+                <i class="ri-menu-line"></i>
+            </button>
+            <div class="header-title">错误</div>
+            <div class="header-actions">
+                <a href="/" class="btn btn-sm">
+                    <i class="ri-home-line btn-icon"></i>
+                    <span>返回首页</span>
+                </a>
+            </div>
+        </header>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">发生错误</h1>
+                <p class="page-subtitle">系统在处理您的请求时遇到了问题。</p>
+            </div>
+            
+            <!-- 错误信息卡片 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">{{ error_title }}</h2>
+                </div>
+                <div class="card-body">
+                    <div style="background-color: rgba(165, 127, 120, 0.1); color: var(--danger-color); padding: 20px; border-radius: 8px; margin: 15px 0; border-left: 4px solid var(--danger-color);">
+                        <h3 style="margin-top: 0; margin-bottom: 10px; font-weight: 500;">错误详情</h3>
+                        <p style="margin-bottom: 0;">{{ error_message }}</p>
+                    </div>
+                    
+                    <div style="margin-top: 30px;">
+                        <a href="javascript:history.back()" class="btn btn-outline">
+                            <i class="ri-arrow-left-line btn-icon"></i>
+                            <span>返回上一页</span>
+                        </a>
+                        <a href="/" class="btn btn-primary" style="margin-left: 10px;">
+                            <i class="ri-home-line btn-icon"></i>
+                            <span>返回首页</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        // 侧边栏切换
+        document.getElementById('sidebar-toggle').addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+            document.querySelector('.main-content').classList.toggle('expanded');
+            document.querySelector('.header').classList.toggle('expanded');
+        });
+    </script>
+</body>
+</html> 

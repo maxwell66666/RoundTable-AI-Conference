@@ -232,7 +232,8 @@ def get_random_agents(conn, num_agents, diversity_parameters=None):
 
     if len(agents) < num_agents:
         print(f"Only {len(agents)} agents available, returning all.")
-        return agents
+        # 只返回agent_id列表，而不是Agent对象
+        return [agent.agent_id for agent in agents]
 
     if diversity_parameters and "mbti" in diversity_parameters:
         # Ensure diverse MBTI types
@@ -246,9 +247,9 @@ def get_random_agents(conn, num_agents, diversity_parameters=None):
                 mbti_types.add(mbti)
             if len(diverse_agents) >= num_agents:
                 break
-        return diverse_agents[:num_agents]
+        return [agent.agent_id for agent in diverse_agents[:num_agents]]
     else:
-        return random.sample(agents, num_agents)
+        return random.sample([agent.agent_id for agent in agents], num_agents)
 
 # Test the code with multiple agents and new features
 if __name__ == "__main__":
@@ -324,11 +325,11 @@ if __name__ == "__main__":
 
     # Get 2 random agents with MBTI diversity
     random_diverse_agents = get_random_agents(2, {"mbti": True})
-    print(f"Random Diverse Agents (by MBTI): {[agent.name + ' (' + agent.personality_traits.get('mbti', 'Unknown') + ')' for agent in random_diverse_agents]}")
+    print(f"Random Diverse Agents (by MBTI): {[agent for agent in random_diverse_agents]}")
 
     # Get 3 random agents without diversity
     random_agents = get_random_agents(3)
-    print(f"Random Agents: {[agent.name + ' (' + agent.personality_traits.get('mbti', 'Unknown') + ')' for agent in random_agents]}")
+    print(f"Random Agents: {[agent for agent in random_agents]}")
 
     # Update an agent
     updated_data = {

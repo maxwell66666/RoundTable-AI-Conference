@@ -311,6 +311,21 @@
     
     <div class="conference-header">
         <h1>{{ conference.title }}</h1>
+        
+        <!-- 会议类型标签 -->
+        <div style="margin: 10px 0;">
+            <span style="display: inline-block; padding: 4px 12px; border-radius: 16px; background-color: 
+            {% if conference.conference_type == '战略讨论' %}var(--primary-color)
+            {% elif conference.conference_type == '技术评审' %}var(--success-color)
+            {% elif conference.conference_type == '头脑风暴' %}var(--warning-color)
+            {% elif conference.conference_type == '项目计划' %}var(--info-color)
+            {% elif conference.conference_type == '总结回顾' %}var(--secondary-color)
+            {% else %}var(--primary-color){% endif %}; 
+            color: white; font-size: 0.9rem; font-weight: 500;">
+                {{ conference.conference_type or '战略讨论' }}
+            </span>
+        </div>
+        
         <p class="conference-meta">
             {% if conference.start_time %}
             会议开始时间: {{ conference.start_time.split('T')[0] }} {{ conference.start_time.split('T')[1].split('.')[0] }}

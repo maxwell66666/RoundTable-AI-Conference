@@ -9,6 +9,7 @@ import time
 import importlib
 import re
 from datetime import datetime
+import shutil
 
 # 从 .env 文件加载环境变量
 load_dotenv()
@@ -478,13 +479,29 @@ def manage_turn_taking(conference_id, phase_name, topic, agents):
         return dialogue_history
         
     # 尝试从文件加载现有对话历史，包括之前的用户提问和代理回答
-    history_file = f"dialogue_history_{conference_id}_{conference.current_phase_index}.json"
+    history_dir = "dialogue_histories"
+    history_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{conference.current_phase_index}.json")
+    old_history_file = f"dialogue_history_{conference_id}_{conference.current_phase_index}.json"
+    
     try:
-        with open(history_file, "r") as f:
-            existing_history = json.load(f)
-            if existing_history:
-                print(f"加载了 {len(existing_history)} 条已有对话记录，包括先前的提问和回答")
-                dialogue_history = existing_history
+        # 先尝试从新位置加载
+        if os.path.exists(history_file):
+            with open(history_file, "r", encoding='utf-8') as f:
+                existing_history = json.load(f)
+                if existing_history:
+                    print(f"加载了 {len(existing_history)} 条已有对话记录，包括先前的提问和回答")
+                    dialogue_history = existing_history
+        # 再尝试从旧位置加载
+        elif os.path.exists(old_history_file):
+            with open(old_history_file, "r", encoding='utf-8') as f:
+                existing_history = json.load(f)
+                if existing_history:
+                    print(f"从旧位置加载了 {len(existing_history)} 条已有对话记录，包括先前的提问和回答")
+                    dialogue_history = existing_history
+                    # 将旧文件移动到新位置
+                    if not os.path.exists(history_dir):
+                        os.makedirs(history_dir)
+                    shutil.move(old_history_file, history_file)
     except (FileNotFoundError, json.JSONDecodeError):
         print(f"未找到现有对话历史或文件格式错误，将创建新的对话历史")
 
@@ -503,8 +520,7 @@ def manage_turn_taking(conference_id, phase_name, topic, agents):
             dialogue_history.append({"agent_id": agent.agent_id, "speech": speech, "timestamp": timestamp})
             
             # 将对话历史保存到文件，用于实时流式传输
-            with open(f"dialogue_history_{conference_id}_{conference.current_phase_index}.json", "w") as f:
-                json.dump(dialogue_history, f, indent=4)
+            save_dialogue_history(dialogue_history, conference_id, conference.current_phase_index)
                 
             print(speech)
         random.shuffle(available_agents)  # 为下一轮重新洗牌
@@ -592,10 +608,25 @@ def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, u
         print(f"{agent.name} 回应：{answer}")
 
         # 添加到对话历史
-        history_file = f"dialogue_history_{conference_id}_{phase_id}.json"
+        history_dir = "dialogue_histories"
+        history_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{phase_id}.json")
+        old_history_file = f"dialogue_history_{conference_id}_{phase_id}.json"
+        
         try:
-            with open(history_file, "r") as f:
-                history = json.load(f)
+            # 先尝试从新位置加载
+            if os.path.exists(history_file):
+                with open(history_file, "r", encoding='utf-8') as f:
+                    history = json.load(f)
+            # 再尝试从旧位置加载
+            elif os.path.exists(old_history_file):
+                with open(old_history_file, "r", encoding='utf-8') as f:
+                    history = json.load(f)
+                # 将旧文件移动到新位置
+                if not os.path.exists(history_dir):
+                    os.makedirs(history_dir)
+                shutil.move(old_history_file, history_file)
+            else:
+                history = []
         except (FileNotFoundError, json.JSONDecodeError):
             history = []
         
@@ -612,12 +643,30 @@ def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, u
         timestamp = datetime.now().isoformat()
         history.append({"agent_id": target_agent_id, "speech": answer, "timestamp": timestamp})
         
-        with open(history_file, "w") as f:
-            json.dump(history, f, indent=4)
+        # 保存更新后的对话历史
+        save_dialogue_history(history, conference_id, phase_id)
+        
         return answer
     else:
         print("无效的干预操作！")
         return False
+
+def save_dialogue_history(dialogue_history, conference_id, phase_id):
+    """保存对话历史到JSON文件"""
+    # 确保dialogue_histories目录存在
+    history_dir = "dialogue_histories"
+    if not os.path.exists(history_dir):
+        os.makedirs(history_dir)
+        
+    # 构建文件名
+    filename = f"dialogue_history_{conference_id}_{phase_id}.json"
+    file_path = os.path.join(history_dir, filename)
+    
+    # 保存对话历史
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(dialogue_history, f, ensure_ascii=False, indent=2)
+    
+    return filename
 
 # 测试代码
 if __name__ == "__main__":
