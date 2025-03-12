@@ -32,14 +32,17 @@ def with_db_connection(func):
             conn.close()
     return wrapper
 
-# 保存会议到数据库的辅助函数
+def save_conference(conference):
+    """保存会议更新到数据库的公共接口"""
+    return _save_conference(conference)
+
 @with_db_connection
 def _save_conference(conference, conn=None):
     """保存会议更新到数据库
     
     参数:
         conference: 会议对象
-        conn: 数据库连接, 由装饰器提供, 不应直接传递
+        conn: 数据库连接, 由装饰器提供
     """
     cursor = conn.cursor()
     cursor.execute('''
@@ -103,27 +106,12 @@ def create_conference(conference_id, title, topic, num_agents, conference_type="
     if cursor.fetchone():
         raise ValueError(f"会议ID {conference_id} 已存在")
 
-    # 生成议程
+    # 简化议程 - 只有一个阶段
     agenda = [
         {
-            "phase_name": "主题讨论",
+            "phase_name": "智能讨论",
             "topics": [topic],
-            "description": f"对 '{topic}' 进行深入讨论，分享各自观点和见解"
-        },
-        {
-            "phase_name": "专家分享",
-            "topics": [topic],
-            "description": f"各位专家轮流分享关于 '{topic}' 的专业知识和经验"
-        },
-        {
-            "phase_name": "问答",
-            "topics": [topic],
-            "description": f"针对 '{topic}' 提出疑问并回答其他参与者的问题"
-        },
-        {
-            "phase_name": "总结",
-            "topics": [topic],
-            "description": f"归纳讨论中的关键点，提出具体可行的结论和建议"
+            "description": f"主持人开场并搜索信息，专家讨论，用户可随时提问"
         }
     ]
     
@@ -157,7 +145,7 @@ def create_conference(conference_id, title, topic, num_agents, conference_type="
     return conference
 
 def start_conference(conference_id):
-    conference = get_conference(conference_id)  # Assume this retrieves a conference object
+    conference = get_conference(conference_id)
     if not conference:
         print(f"No conference found with ID {conference_id}!")
         return False
@@ -167,8 +155,7 @@ def start_conference(conference_id):
     conference.start_time = datetime.now().isoformat()
     conference.current_phase_index = 0
     
-    # 直接调用_save_conference，不传递conn参数
-    _save_conference(conference)
+    save_conference(conference)
     
     print(f"Conference '{conference.title}' has started!")
     return True
@@ -220,8 +207,7 @@ def advance_phase(conference_id):
         raise ValueError("已经是最后一个阶段")
     conference.current_phase_index += 1
     
-    # 直接调用_save_conference，不传递conn参数
-    _save_conference(conference)
+    save_conference(conference)
     
     return conference
 
@@ -231,8 +217,7 @@ def end_phase(conference_id):
         raise ValueError("会议不存在")
     # 可以在这里添加阶段总结等逻辑
     
-    # 直接调用_save_conference，不传递conn参数
-    _save_conference(conference)
+    save_conference(conference)
     
     return conference
 
@@ -243,8 +228,7 @@ def end_conference(conference_id):
     conference.end_time = datetime.now().isoformat()
     # 可以在这里生成会议总结
     
-    # 直接调用_save_conference，不传递conn参数
-    _save_conference(conference)
+    save_conference(conference)
     
     return conference
 

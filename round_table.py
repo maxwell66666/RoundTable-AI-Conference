@@ -10,6 +10,7 @@ import importlib
 import re
 from datetime import datetime
 import shutil
+import requests
 
 # 从 .env 文件加载环境变量
 load_dotenv()
@@ -17,7 +18,7 @@ load_dotenv()
 # 支持的 API 提供商列表
 SUPPORTED_PROVIDERS = [
     "oneapi", "openai", "anthropic", "gemini", "deepseek", 
-    "siliconflow", "volcengine", "tencentcloud", "aliyun"
+    "siliconflow", "volcengine", "tencentcloud", "aliyun", "openrouter"
 ]
 
 # 默认提供商，从环境变量读取
@@ -34,7 +35,7 @@ def init_api_client(provider):
     
     if provider == "oneapi":
         api_key = os.getenv("ONEAPI_API_KEY")
-        base_url = os.getenv("ONEAPI_BASE_URL", "https://api.oneapi.com/v1")
+        base_url = os.getenv("ONEAPI_BASE_URL", "https://api.ffa.chat/v1")
         if not api_key:
             print(f"警告: OneAPI 密钥未设置")
             return None
@@ -104,12 +105,18 @@ def init_api_client(provider):
     
     elif provider == "volcengine":
         api_key = os.getenv("VOLCENGINE_API_KEY")
-        base_url = os.getenv("VOLCENGINE_BASE_URL", "https://open.volcengineapi.com")
+        base_url = os.getenv("VOLCENGINE_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
         if not api_key:
             print(f"警告: 火山引擎密钥未设置")
             return None
-        # 火山引擎可能需要特殊的客户端，这里使用 OpenAI 兼容模式作为示例
-        client = OpenAI(api_key=api_key, base_url=base_url)
+        # 火山引擎使用OpenAI兼容客户端，添加重试和超时配置
+        print(f"初始化火山引擎API客户端，使用base_url: {base_url}")
+        client = OpenAI(
+            api_key=api_key, 
+            base_url=base_url,
+            max_retries=int(os.getenv("MAX_RETRIES", "3")),
+            timeout=float(os.getenv("API_TIMEOUT", "30"))
+        )
         api_clients[provider] = {"client": client, "type": "openai_compatible"}
         return api_clients[provider]
     
@@ -158,6 +165,23 @@ def init_api_client(provider):
             print(f"警告: 阿里云 SDK 未安装，请使用 pip install aliyun-python-sdk-core 安装")
             return None
     
+    elif provider == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        if not api_key:
+            print(f"警告: OpenRouter 密钥未设置")
+            return None
+        # OpenRouter使用OpenAI兼容客户端，添加重试和超时配置
+        print(f"初始化OpenRouter API客户端，使用base_url: {base_url}")
+        client = OpenAI(
+            api_key=api_key, 
+            base_url=base_url,
+            max_retries=int(os.getenv("MAX_RETRIES", "3")),
+            timeout=float(os.getenv("API_TIMEOUT", "30"))
+        )
+        api_clients[provider] = {"client": client, "type": "openai_compatible"}
+        return api_clients[provider]
+    
     else:
         print(f"错误: 不支持的提供商 {provider}")
         return None
@@ -181,6 +205,9 @@ def call_llm_api(provider, model, prompt, max_tokens=None, temperature=None):
     if temperature is None:
         temperature = float(os.getenv("TEMPERATURE", "0.7"))
     
+    # 获取API超时设置
+    api_timeout = int(os.getenv("API_TIMEOUT", "30"))
+    
     # 获取 API 客户端
     api_client_info = init_api_client(provider)
     if not api_client_info:
@@ -192,14 +219,64 @@ def call_llm_api(provider, model, prompt, max_tokens=None, temperature=None):
     try:
         # 根据客户端类型调用不同的 API
         if client_type == "openai_compatible":
-            # OpenAI 兼容接口 (OneAPI, OpenAI, DeepSeek, SiliconFlow 等)
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens,
-                temperature=temperature
-            )
-            return response.choices[0].message.content.strip()
+            # OpenAI 兼容接口 (OneAPI, OpenAI, DeepSeek, SiliconFlow, OpenRouter 等)
+            print(f"调用 {provider} API，模型: {model}，超时: {api_timeout}秒")
+            
+            # 检查是否是通过OneAPI调用Gemini模型
+            is_gemini_via_oneapi = provider == "oneapi" and "gemini" in model.lower()
+            
+            # 如果是通过OneAPI调用Gemini模型，添加强制中文输出的指令
+            if is_gemini_via_oneapi:
+                enhanced_prompt = f"""
+{prompt}
+
+请用中文回答上述问题。即使问题是英文的，也请用中文回答。
+Your response MUST be in Chinese. Even if the question is in English, please respond in Chinese only.
+"""
+            else:
+                enhanced_prompt = prompt
+            
+            try:
+                # 为OpenRouter添加特殊处理
+                if provider == "openrouter":
+                    # OpenRouter需要额外的HTTP头信息
+                    headers = {
+                        "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "https://github.com/yourusername/RoundTable"),
+                        "X-Title": os.getenv("OPENROUTER_TITLE", "RoundTable AI Conference")
+                    }
+                    
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": enhanced_prompt}],
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        timeout=api_timeout,
+                        extra_headers=headers  # 添加OpenRouter所需的额外头信息
+                    )
+                else:
+                    # 其他OpenAI兼容接口
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": enhanced_prompt}],
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        timeout=api_timeout
+                    )
+                return response.choices[0].message.content.strip()
+            except Exception as e:
+                error_msg = str(e)
+                print(f"API调用错误 ({provider}:{model}): {error_msg}")
+                # 检查是否是超时错误
+                if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                    return f"API 调用错误：请求超时 ({api_timeout}秒)，请检查网络连接或增加超时时间"
+                # 检查是否是认证错误
+                elif "auth" in error_msg.lower() or "key" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                    return f"API 调用错误：认证失败，请检查API密钥是否正确"
+                # 检查是否是模型不存在错误
+                elif "model" in error_msg.lower() and ("not found" in error_msg.lower() or "doesn't exist" in error_msg.lower()):
+                    return f"API 调用错误：模型 '{model}' 不存在或不可用"
+                else:
+                    return f"API 调用错误：{error_msg}"
         
         elif client_type == "anthropic":
             # Anthropic Claude API
@@ -207,14 +284,23 @@ def call_llm_api(provider, model, prompt, max_tokens=None, temperature=None):
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                timeout=api_timeout  # 添加超时设置
             )
             return response.content[0].text
         
         elif client_type == "gemini":
             # Google Gemini API
             model_obj = client.GenerativeModel(model)
-            response = model_obj.generate_content(prompt)
+            
+            # 为Gemini模型添加强制中文输出的指令
+            enhanced_prompt = f"""
+{prompt}
+
+请用中文回答上述问题。即使问题是英文的，也请用中文回答。
+Your response MUST be in Chinese. Even if the question is in English, please respond in Chinese only.
+"""
+            response = model_obj.generate_content(enhanced_prompt)
             return response.text
         
         elif client_type == "tencentcloud":
@@ -253,7 +339,9 @@ def call_llm_api(provider, model, prompt, max_tokens=None, temperature=None):
             return f"错误：不支持的客户端类型 {client_type}"
             
     except Exception as e:
-        return f"API 调用错误：{str(e)}"
+        error_msg = str(e)
+        print(f"API调用过程中出现异常: {error_msg}")
+        return f"错误：API调用过程中出现异常 - {error_msg}"
 
 # 通过ID获取代理名称的辅助函数
 def get_agent_name_by_id(agent_id):
@@ -282,108 +370,249 @@ def get_referenced_agent_name(text, agent_ids):
     
     return modified_text
 
+# 搜索最新信息的函数
+def search_latest_info(topic, skills=None):
+    """
+    搜索与主题相关的最新信息
+    
+    参数:
+        topic: 搜索主题
+        skills: 技能列表，用于优化搜索查询
+    
+    返回:
+        格式化后的搜索结果字符串
+    """
+    try:
+        # 导入搜索引擎模块
+        from search_engines import search_latest_info_with_engine
+        
+        # 从环境变量获取搜索引擎名称，默认使用tavily
+        engine_name = os.getenv("SEARCH_ENGINE", "tavily")
+        
+        # 从环境变量获取最大结果数
+        max_results = int(os.getenv("SEARCH_MAX_RESULTS", "5"))
+        
+        print(f"正在使用 {engine_name} 搜索关于 '{topic}' 的最新信息...")
+        
+        # 调用搜索引擎模块的函数
+        return search_latest_info_with_engine(
+            topic=topic,
+            skills=skills,
+            engine_name=engine_name,
+            max_results=max_results
+        )
+    except Exception as e:
+        # 如果搜索失败，返回错误信息
+        error_msg = f"搜索时发生错误: {str(e)}"
+        print(error_msg)
+        
+        # 返回一个基本的回退信息
+        current_date = datetime.now().strftime("%Y年%m月%d日")
+        return f"""搜索时间: {current_date}
+
+很抱歉，在搜索"{topic}"相关信息时遇到了技术问题。
+
+建议:
+1. 请检查网络连接
+2. 确认搜索引擎配置是否正确
+3. 尝试使用不同的搜索引擎或关键词
+
+错误详情: {str(e)}"""
+
 # 使用 LLM API 生成代理发言
-def generate_agent_speech(agent, phase_name, topic, previous_speech=None):
-    """使用指定的 LLM API 生成代理的发言。"""
+def generate_agent_speech(agent, phase_name, topic, previous_speech=None, search_results=None):
+    """使用指定的LLM API 生成代理的发言"""
     skills = ", ".join(agent.background_info.get("skills", []))
     mbti = agent.personality_traits.get("mbti", "未知")
     style = agent.communication_style.get("style", "中立")
     tone = agent.communication_style.get("tone", "中立")
 
+    # 如果没有提供搜索结果，则进行搜索
+    # 注意：在新的对话流程中，主持人会提供搜索结果，其他专家应该使用主持人的搜索结果
+    if search_results is None:
+        # 从环境变量获取是否启用搜索
+        enable_search = os.getenv("ENABLE_SEARCH", "true").lower() == "true"
+        
+        if enable_search:
+            # 从环境变量获取搜索引擎，默认使用tavily
+            search_engine = os.getenv("SEARCH_ENGINE", "tavily")
+            print(f"为 {agent.name} 使用 {search_engine} 搜索关于 '{topic}' 的最新信息...")
+            latest_info = search_latest_info(topic, skills)
+        else:
+            latest_info = f"搜索功能已禁用。请基于您的专业知识和理解来讨论主题：{topic}"
+    else:
+        # 使用传递的搜索结果
+        latest_info = search_results
+        print(f"为 {agent.name} 使用已提供的搜索结果")
+    
+    print(f"为 {agent.name} 使用的最新信息: {latest_info[:100]}..." if len(latest_info) > 100 else latest_info)
+
     # 根据阶段类型和上下文构建提示词
     if phase_name == "主题讨论":
+        # 主题讨论阶段
         if previous_speech:
-            previous_agent_name = get_agent_name_by_id(previous_speech['agent_id']) or previous_speech['agent_id']
+            # 获取上一位发言者的名字
+            previous_agent_id = previous_speech.get('agent_id', '')
+            previous_agent_name = get_agent_name_by_id(previous_agent_id) or previous_agent_id
             
-            # 检查前一条消息是否包含了用户问题的回答
-            was_user_question_response = "提问给" in previous_speech.get('speech', '') or "用户" in previous_speech.get('speech', '')
-            
-            if was_user_question_response:
-                prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 进行深入讨论，同时考虑 {previous_agent_name} 刚才回答的用户提问。
+            prompt = f"""你是一个名为{agent.name}的AI代理，正在参加一个圆桌会议。
+你的MBTI类型是{mbti}，你的沟通风格是{style}，语气{tone}。
+你的专业技能包括: {skills}
 
-你的回应需要：
-1. 简明扼要地提及用户的提问以及 {previous_agent_name} 的核心回答观点
-2. 从你的 {skills} 专业背景出发，对 {previous_agent_name} 的回答进行扩展或补充
-3. 提供具体的例子、数据或案例支持你的观点
-4. 分析这个问题的其他可能角度或解决方案
-5. 提出一个深度思考问题，推动讨论向更深层次发展
+以下是关于主题"{topic}"的最新信息:
+{latest_info}
 
-请以 {tone} 的语调回答，避免空泛的表达和客套话。直接使用对方的名字 {previous_agent_name} 而不是代号。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
-            else:
-                prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请回应 {previous_agent_name} 关于 {topic} 的观点。
+会议上一位发言者{previous_agent_name}说:
+{previous_speech}
 
-你的回应需要：
-1. 明确表达你对 {previous_agent_name} 观点的分析（不仅是简单的同意或反对）
-2. 结合你的 {skills} 专业背景提供具体的例子、数据或案例
-3. 提出1-2个具体且可行的解决方案或建议
-4. 分析这些方案的可能影响和挑战
-5. 提出一个深度思考问题，推动讨论向更深层次发展
+请你以{agent.name}的身份，根据你的MBTI类型、沟通风格和专业背景，对{previous_agent_name}的观点进行回应。
+在回应中，请引用最新的相关信息，并结合你的专业知识提供深入见解。
+回应应当体现你的性格特点和沟通风格，语气应为{tone}。
 
-请以 {tone} 的语调回答，避免空泛的表达和客套话。直接使用对方的名字 {previous_agent_name} 而不是代号。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+重要要求:
+1. 必须直接称呼上一位发言者为"{previous_agent_name}"，不要使用代号如"A001"
+2. 必须对{previous_agent_name}的观点进行批判性思考，提出不同角度的见解或补充
+3. 必须提出1个具体可行的解决方案或行动建议
+4. 必须在发言结尾给出明确的结论
+5. 只引用可验证的事实，避免编造或夸大信息
+6. 如果不确定某个信息，请明确表示这是你的推测
+
+回复格式要求:
+1. 不要使用Markdown格式
+2. 不要包含标题
+3. 不要在开头介绍自己
+4. 直接以{agent.name}的身份开始发言，可以先称呼{previous_agent_name}
+5. 回应长度必须控制在200字以内
+6. 必须使用中文回答，即使问题是英文的，也请用中文回答
+7. 语言必须简洁、精确且富有洞察力
+"""
         else:
-            prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 展开深度分析。
+            prompt = f"""你是一个名为{agent.name}的AI代理，正在参加一个圆桌会议。
+你的MBTI类型是{mbti}，你的沟通风格是{style}，语气{tone}。
+你的专业技能包括: {skills}
 
-你的回应需要：
-1. 简明扼要地解释为什么 {topic} 在当前背景下至关重要
-2. 结合你的 {skills} 专业背景分析其中2-3个关键挑战或机遇
-3. 提供具体的数据、案例或研究结果支持你的观点
-4. 提出1-2个具体且可行的解决方案或建议
-5. 分析这些方案的可能影响和实施难点
+以下是关于主题"{topic}"的最新信息:
+{latest_info}
 
-请以 {tone} 的语调回答，避免空泛的表达和客套话。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+请你以{agent.name}的身份，根据你的MBTI类型、沟通风格和专业背景，对主题"{topic}"发表看法。
+在发言中，请引用最新的相关信息，并结合你的专业知识提供深入见解。
+发言应当体现你的性格特点和沟通风格，语气应为{tone}。
+
+重要要求:
+1. 必须提出1个具体可行的解决方案或行动建议
+2. 必须在发言结尾给出明确的结论
+3. 只引用可验证的事实，避免编造或夸大信息
+4. 如果不确定某个信息，请明确表示这是你的推测
+5. 分析问题时要从多个角度思考
+
+回复格式要求:
+1. 不要使用Markdown格式
+2. 不要包含标题
+3. 不要在开头介绍自己
+4. 直接以{agent.name}的身份开始发言
+5. 发言长度必须控制在200字以内
+6. 必须使用中文回答，即使问题是英文的，也请用中文回答
+7. 语言必须简洁、精确且富有洞察力
+"""
     elif phase_name == "专家分享":
         if previous_speech and "专家" in previous_speech["speech"].lower():
             previous_agent_name = get_agent_name_by_id(previous_speech['agent_id']) or previous_speech['agent_id']
-            prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请在 {previous_agent_name} 关于 {topic} 的专业分享基础上进行扩展。
+            prompt = f"""作为 {agent.name}，你是{agent.background_info["field"]}领域的顶尖专家，请对{previous_agent_name}关于"{topic}"的观点进行深度剖析和专业延展。
 
-你的回应需要：
-1. 简明扼要地总结 {previous_agent_name} 的核心观点（不要过于冗长）
-2. 从你的 {skills} 专业角度提供补充视角或不同的解读
-3. 分享1-2个相关但 {previous_agent_name} 未提及的关键洞见
-4. 提供具体的案例、研究或数据支持你的观点
-5. 指出当前领域内存在的争议或未解问题
+你的MBTI类型是{mbti}，沟通风格是{style}，语气{tone}。
+你的专业技能包括: {skills}
 
-请以 {tone} 的语调回答，确保内容既有专业深度又通俗易懂。直接使用对方的名字 {previous_agent_name} 而不是代号。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+以下是关于该主题的最新信息，请在回答中适当参考：
+{latest_info}
+
+专业回应要求:
+1. 必须以"{previous_agent_name}提到的..."开头，精准提炼其核心观点(1句话)
+2. 必须明确指出{previous_agent_name}观点中的1个优点和1个局限或盲点
+3. 必须从你的专业领域出发，提供1个{previous_agent_name}未提及的关键洞见
+4. 必须提出1个极具操作性的解决方案
+5. 必须在结尾给出极具价值的行动建议总结(1-2点)
+
+回复格式要求:
+1. 不要使用Markdown格式
+2. 不要包含标题
+3. 不要在开头介绍自己
+4. 直接以{agent.name}的身份开始发言，先称呼{previous_agent_name}
+5. 回应长度必须控制在200字以内
+6. 必须使用中文回答
+7. 语言必须简洁、精确且富有洞察力
+"""
         else:
-            prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 进行专业性分享。
+            prompt = f"""作为 {agent.name}，你是{agent.background_info["field"]}领域的顶尖专家，请就"{topic}"提供极具洞察力、前瞻性和变革性的专业评论。
 
-你的分享需要：
-1. 开门见山地指出 {topic} 中最被误解或忽视的1-2个关键方面
-2. 结合你的 {skills} 专业背景，分享2-3个独到的专业见解
-3. 提供具体的案例、研究数据或实践经验支持你的论点
-4. 分析当前领域内的主要争议或发展趋势
-5. 提出对未来发展的预测或建议
+你的MBTI类型是{mbti}，沟通风格是{style}，语气{tone}。
+你的专业技能包括: {skills}
 
-请以 {tone} 的语调回答，确保内容既有专业深度又通俗易懂。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+以下是关于该主题的最新信息，请在回答中适当参考：
+{latest_info}
+
+专业评论要求:
+1. 必须开门见山地指出"{topic}"的核心本质和1-2个关键维度
+2. 必须从你的专业角度提供1-2个突破性见解
+3. 必须提出1个极具创新性的解决方案
+4. 必须在结尾给出极具前瞻性的行动建议总结(1-2点)
+
+回复格式要求:
+1. 不要使用Markdown格式
+2. 不要包含标题
+3. 不要在开头介绍自己
+4. 直接以{agent.name}的身份开始发言
+5. 回应长度必须控制在200字以内
+6. 必须使用中文回答
+7. 语言必须简洁、精确且富有洞察力
+"""
     elif phase_name == "问答":
-        prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 相关问题提供专业回答。
+        prompt = f"""作为 {agent.name}，你是{agent.background_info["field"]}领域的顶尖专家，请就"{topic}"相关问题提供极具深度、权威性和实用价值的专业解答。
 
-你的回应需要：
-1. 直接切入问题核心，避免不必要的铺垫
-2. 基于你的 {skills} 专业知识提供准确、全面的解释
-3. 提供具体的例子、数据或案例支持你的回答
-4. 分析不同观点或方法的优缺点
-5. 在适当的情况下，承认领域内的不确定性或知识局限
+你的MBTI类型是{mbti}，沟通风格是{style}，语气{tone}。
+你的专业技能包括: {skills}
 
-请以 {tone} 的语调回答，确保内容既权威又易于理解。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+以下是关于该主题的最新信息，请在回答中适当参考：
+{latest_info}
+
+专业解答要求:
+1. 必须立即切入问题核心，用1句话精准定义问题的本质
+2. 必须提供简洁的专业分析，包括问题的根本原因和影响因素
+3. 必须提出1-2个极具操作性的解决方案
+4. 必须在结尾给出极具价值的行动建议总结(1-2点)
+
+回复格式要求:
+1. 不要使用Markdown格式
+2. 不要包含标题
+3. 不要在开头介绍自己
+4. 直接以{agent.name}的身份开始发言
+5. 回应长度必须控制在200字以内
+6. 必须使用中文回答
+7. 语言必须简洁、精确且富有洞察力
+"""
     else:
-        prompt = f"""作为 {agent.name} (MBTI: {mbti}, 风格: {style})，请就 {topic} 提供深入评论。
+        prompt = f"""作为 {agent.name}，你是{agent.background_info["field"]}领域的顶尖专家，请就"{topic}"提供极具洞察力、前瞻性和变革性的专业评论。
 
-你的评论需要：
-1. 开门见山地指出 {topic} 的核心价值或挑战
-2. 结合你的 {skills} 专业背景提供独特视角
-3. 引用相关研究、数据或案例支持你的观点
-4. 分析当前主流观点的局限性或盲点
-5. 提出创新性的思考方向或解决思路
+你的MBTI类型是{mbti}，沟通风格是{style}，语气{tone}。
+你的专业技能包括: {skills}
 
-请以 {tone} 的语调回答，避免空泛的表达和客套话。
-限制在300字以内，保持内容丰富但简洁。请用中文回答。"""
+以下是关于该主题的最新信息，请在回答中适当参考：
+{latest_info}
+
+专业评论要求:
+1. 必须开门见山地指出"{topic}"的核心本质和1-2个关键维度
+2. 必须从你的专业角度提供1-2个突破性见解
+3. 必须提出1个极具创新性的解决方案
+4. 必须在结尾给出极具前瞻性的行动建议总结(1-2点)
+
+回复格式要求:
+1. 不要使用Markdown格式
+2. 不要包含标题
+3. 不要在开头介绍自己
+4. 直接以{agent.name}的身份开始发言
+5. 回应长度必须控制在200字以内
+6. 必须使用中文回答
+7. 语言必须简洁、精确且富有洞察力
+"""
 
     # 获取该代理的模型字符串
     agent_model = os.getenv(f"MODEL_{agent.agent_id}", os.getenv("DEFAULT_MODEL", f"{DEFAULT_PROVIDER}:gpt-3.5-turbo"))
@@ -394,10 +623,11 @@ def generate_agent_speech(agent, phase_name, topic, previous_speech=None):
     # 调用 API，增加重试逻辑
     max_retries = int(os.getenv("MAX_RETRIES", "3"))
     retry_count = 0
+    retry_delay = 2  # 初始重试延迟（秒）
     
     while retry_count < max_retries:
         try:
-            print(f"正在使用 {provider} 的 {model_name} 模型生成 {agent.name} 的回应...")
+            print(f"正在使用 {provider} 的 {model_name} 模型生成 {agent.name} 的回应... (尝试 {retry_count+1}/{max_retries})")
             speech = call_llm_api(
                 provider, 
                 model_name, 
@@ -415,18 +645,59 @@ def generate_agent_speech(agent, phase_name, topic, previous_speech=None):
                 raise Exception(speech)
         except Exception as e:
             retry_count += 1
-            print(f"API调用出错 (尝试 {retry_count}/{max_retries}): {str(e)}")
+            error_msg = str(e)
+            print(f"API调用出错 (尝试 {retry_count}/{max_retries}): {error_msg}")
+            
             if retry_count >= max_retries:
                 # 所有重试都失败后，返回备用响应
                 fallback_response = f"{agent.name}: 由于技术原因，无法使用 {provider} 的 {model_name} 模型获取完整回应。作为{mbti}类型的专家，我认为{topic}是一个重要话题，需要从多角度深入分析并提出具体解决方案。"
                 print(f"使用备用回应: {fallback_response}")
                 return fallback_response
-            # 等待短暂时间后重试
-            time.sleep(1)
+                
+            # 使用指数退避策略增加重试间隔
+            wait_time = retry_delay * (2 ** (retry_count - 1))  # 指数增长的等待时间
+            print(f"等待 {wait_time} 秒后重试...")
+            time.sleep(wait_time)
+            
+            # 如果是最后一次重试，尝试使用备用模型
+            if retry_count == max_retries - 1:
+                backup_model = os.getenv("BACKUP_MODEL", "siliconflow:claude-3-opus")
+                if backup_model != f"{provider}:{model_name}":
+                    print(f"尝试使用备用模型 {backup_model}")
+                    backup_provider, backup_model_name = parse_model_string(backup_model)
+                    provider = backup_provider
+                    model_name = backup_model_name
+
+# 测试API连接
+def test_api_connection(provider=None, model=None):
+    """测试API连接是否正常"""
+    if not provider:
+        provider = os.getenv("DEFAULT_PROVIDER", "volcengine")
+    if not model:
+        model = os.getenv("DEFAULT_MODEL", "").split(":")[-1]
+        if not model:
+            model = "deepseek-r1-250120"  # 默认模型
+    
+    print(f"测试 {provider} API 连接，模型: {model}")
+    
+    # 简单的测试提示
+    prompt = "你好，这是一个API连接测试。请回复'连接正常'。"
+    
+    try:
+        response = call_llm_api(provider, model, prompt, max_tokens=20, temperature=0.1)
+        if response and not response.startswith("错误") and not response.startswith("API 调用错误"):
+            print(f"API连接测试成功: {response}")
+            return True, response
+        else:
+            print(f"API连接测试失败: {response}")
+            return False, response
+    except Exception as e:
+        print(f"API连接测试异常: {str(e)}")
+        return False, str(e)
 
 # 开始阶段讨论的函数
 def start_phase_discussion(conference_id, phase_id):
-    """为会议中的特定阶段启动讨论。"""
+    """为会议启动讨论。"""
     try:
         conference = get_conference(conference_id)
         if not conference:
@@ -451,7 +722,52 @@ def start_phase_discussion(conference_id, phase_id):
             print(error_msg)
             return error_msg
 
-        dialogue_history = manage_turn_taking(conference_id, phase_name, topic, agents)
+        # 尝试从文件加载现有对话历史
+        dialogue_history = []
+        history_dir = "dialogue_histories"
+        history_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{phase_id}.json")
+        
+        try:
+            if os.path.exists(history_file):
+                with open(history_file, "r", encoding='utf-8') as f:
+                    existing_history = json.load(f)
+                    if existing_history:
+                        print(f"加载了 {len(existing_history)} 条已有对话记录")
+                        dialogue_history = existing_history
+                        # 如果已有对话记录，直接返回
+                        return dialogue_history
+        except (FileNotFoundError, json.JSONDecodeError):
+            print(f"未找到现有对话历史或文件格式错误，将创建新的对话历史")
+        
+        # 选择主持人和其他专家
+        moderator, other_agents = select_moderator(agents, conference_id)
+        if not moderator:
+            print("错误：无法选择主持人！")
+            return dialogue_history
+        
+        # 性能优化：限制参与讨论的代理数量
+        max_agents_per_round = int(os.getenv("MAX_AGENTS_PER_ROUND", "4"))
+        if len(other_agents) > max_agents_per_round - 1:  # 减1是因为已经有一个主持人
+            print(f"性能优化：限制每轮讨论的代理数量为 {max_agents_per_round} (总共 {len(agents)} 个代理)")
+            # 随机选择指定数量的代理参与讨论
+            random.shuffle(other_agents)
+            other_agents = other_agents[:max_agents_per_round - 1]
+        
+        # 统一处理流程：主持人开场 + 专家讨论
+        print("第一步：主持人开场...")
+        # 主持人搜索信息并开场
+        dialogue_history = handle_moderator_opening(moderator, other_agents, topic, conference_id, phase_id)
+        
+        print("第二步：专家讨论...")
+        # 专家讨论
+        dialogue_history = handle_expert_discussion(moderator, other_agents, topic, conference_id, phase_id)
+        
+        print("第三步：添加系统提示...")
+        # 添加系统提示，告知用户可以提问
+        timestamp = datetime.now().isoformat()
+        system_prompt = f"讨论已开始，您可以随时向任何专家提问，或让他们继续讨论。"
+        dialogue_history.append({"agent_id": "系统", "speech": system_prompt, "timestamp": timestamp})
+        save_dialogue_history(dialogue_history, conference_id, phase_id)
         
         # 如果对话历史为空可能表示出错了
         if not dialogue_history:
@@ -459,76 +775,236 @@ def start_phase_discussion(conference_id, phase_id):
             print(error_msg)
             return error_msg
             
-        return True
+        return dialogue_history
     except Exception as e:
         error_msg = f"讨论过程出错: {str(e)}"
         print(error_msg)
         return error_msg
 
-# 管理代理轮流发言的函数，带有动态响应
-def manage_turn_taking(conference_id, phase_name, topic, agents):
-    """管理轮流发言并实现动态代理交互。"""
+# 处理主持人开场阶段
+def handle_moderator_opening(moderator, other_agents, topic, conference_id, phase_id):
+    """主持人搜索信息，总结并进行开场发言，然后自动触发专家讨论"""
     dialogue_history = []
-    available_agents = agents.copy()
-    random.shuffle(available_agents)  # 从随机顺序开始
-
-    # 获取会议对象
-    conference = get_conference(conference_id)
-    if not conference:
-        print(f"未找到ID为 {conference_id} 的会议！")
-        return dialogue_history
-        
-    # 尝试从文件加载现有对话历史，包括之前的用户提问和代理回答
-    history_dir = "dialogue_histories"
-    history_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{conference.current_phase_index}.json")
-    old_history_file = f"dialogue_history_{conference_id}_{conference.current_phase_index}.json"
     
-    try:
-        # 先尝试从新位置加载
-        if os.path.exists(history_file):
-            with open(history_file, "r", encoding='utf-8') as f:
-                existing_history = json.load(f)
-                if existing_history:
-                    print(f"加载了 {len(existing_history)} 条已有对话记录，包括先前的提问和回答")
-                    dialogue_history = existing_history
-        # 再尝试从旧位置加载
-        elif os.path.exists(old_history_file):
-            with open(old_history_file, "r", encoding='utf-8') as f:
-                existing_history = json.load(f)
-                if existing_history:
-                    print(f"从旧位置加载了 {len(existing_history)} 条已有对话记录，包括先前的提问和回答")
-                    dialogue_history = existing_history
-                    # 将旧文件移动到新位置
-                    if not os.path.exists(history_dir):
-                        os.makedirs(history_dir)
-                    shutil.move(old_history_file, history_file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        print(f"未找到现有对话历史或文件格式错误，将创建新的对话历史")
-
-    # 模拟两轮讨论
-    for _ in range(int(os.getenv("DISCUSSION_ROUNDS", "2"))):
-        for agent in available_agents:
+    # 从环境变量获取是否启用搜索
+    enable_search = os.getenv("ENABLE_SEARCH", "true").lower() == "true"
+    search_results = None
+    
+    if enable_search:
+        # 从环境变量获取搜索引擎
+        search_engine = os.getenv("SEARCH_ENGINE", "searxng")
+        print(f"主持人 {moderator.name} 使用 {search_engine} 搜索关于 '{topic}' 的最新信息...")
+        search_results = search_latest_info(topic, ", ".join(moderator.background_info.get("skills", [])))
+    else:
+        search_results = f"搜索功能已禁用。请基于您的专业知识和理解来讨论主题：{topic}"
+    
+    # 主持人开场发言
+    moderator_speech = moderator_opening_speech(moderator, topic, search_results)
+    timestamp = datetime.now().isoformat()
+    dialogue_history.append({"agent_id": moderator.agent_id, "speech": moderator_speech, "timestamp": timestamp})
+    
+    # 将对话历史保存到文件，用于实时流式传输
+    save_dialogue_history(dialogue_history, conference_id, phase_id)
+    print(moderator_speech)
+    
+    # 自动开始专家讨论
+    print(f"主持人开场发言完成，自动开始专家讨论...")
+    
+    # 进行2轮专家讨论
+    discussion_rounds = 2
+    print(f"开始 {discussion_rounds} 轮讨论，每轮 {len(other_agents)} 个专家发言")
+    
+    for round_num in range(discussion_rounds):
+        print(f"开始第 {round_num + 1} 轮讨论")
+        random.shuffle(other_agents)  # 每轮重新洗牌
+        
+        for agent in other_agents:
+            # 获取上一条发言作为上下文
             previous_speech = dialogue_history[-1] if dialogue_history else None
             
             # 如果previous_speech是用户提问，我们需要确保代理看到提问和回答的上下文
             if previous_speech and previous_speech.get("agent_id") == "用户" and len(dialogue_history) >= 2:
                 # 使用倒数第二条记录，也就是代理的回答
                 previous_speech = dialogue_history[-2]
-                
-            speech = agent_speak(agent.agent_id, conference_id, phase_name, topic, previous_speech)
+            
+            # 生成专家发言，传递搜索结果避免重复搜索
+            speech = agent_speak(agent.agent_id, conference_id, "专家讨论", topic, previous_speech, search_results)
             timestamp = datetime.now().isoformat()
             dialogue_history.append({"agent_id": agent.agent_id, "speech": speech, "timestamp": timestamp})
             
             # 将对话历史保存到文件，用于实时流式传输
-            save_dialogue_history(dialogue_history, conference_id, conference.current_phase_index)
-                
+            save_dialogue_history(dialogue_history, conference_id, phase_id)
             print(speech)
-        random.shuffle(available_agents)  # 为下一轮重新洗牌
+    
+    # 主持人总结发言
+    print(f"主持人 {moderator.name} 准备总结发言...")
+    summary_speech = moderator_summary_speech(moderator, topic, dialogue_history)
+    timestamp = datetime.now().isoformat()
+    dialogue_history.append({"agent_id": moderator.agent_id, "speech": summary_speech, "timestamp": timestamp})
+    
+    # 将对话历史保存到文件，用于实时流式传输
+    save_dialogue_history(dialogue_history, conference_id, phase_id)
+    print(summary_speech)
+    
+    # 添加系统提示，告知用户可以提问
+    timestamp = datetime.now().isoformat()
+    system_prompt = f"主持人已总结完毕，您现在可以向专家提问。请在下方选择\"提问\"并选择要提问的专家。"
+    dialogue_history.append({"agent_id": "系统", "speech": system_prompt, "timestamp": timestamp})
+    save_dialogue_history(dialogue_history, conference_id, phase_id)
+    
+    return dialogue_history
 
+# 处理专家讨论阶段
+def handle_expert_discussion(moderator, other_agents, topic, conference_id, phase_id):
+    """专家进行2轮讨论，主持人总结"""
+    # 尝试加载上一阶段的对话历史
+    dialogue_history = []
+    prev_history_file = os.path.join("dialogue_histories", f"dialogue_history_{conference_id}_{phase_id-1}.json")
+    
+    try:
+        if os.path.exists(prev_history_file):
+            with open(prev_history_file, "r", encoding='utf-8') as f:
+                prev_history = json.load(f)
+                if prev_history:
+                    # 获取主持人的搜索结果和开场白
+                    # 注意：我们使用传入的moderator参数，确保使用相同的主持人
+                    moderator_opening = next((item for item in prev_history if item.get("agent_id") == moderator.agent_id), None)
+                    if moderator_opening:
+                        dialogue_history.append(moderator_opening)
+    except Exception as e:
+        print(f"加载上一阶段对话历史时出错: {str(e)}")
+    
+    # 如果没有加载到上一阶段的对话历史，则重新生成主持人开场白
+    if not dialogue_history:
+        # 从环境变量获取是否启用搜索
+        enable_search = os.getenv("ENABLE_SEARCH", "true").lower() == "true"
+        search_results = None
+        
+        if enable_search:
+            search_engine = os.getenv("SEARCH_ENGINE", "searxng")
+            print(f"主持人 {moderator.name} 使用 {search_engine} 搜索关于 '{topic}' 的最新信息...")
+            search_results = search_latest_info(topic, ", ".join(moderator.background_info.get("skills", [])))
+        else:
+            search_results = f"搜索功能已禁用。请基于您的专业知识和理解来讨论主题：{topic}"
+        
+        # 主持人开场发言
+        moderator_speech = moderator_opening_speech(moderator, topic, search_results)
+        timestamp = datetime.now().isoformat()
+        dialogue_history.append({"agent_id": moderator.agent_id, "speech": moderator_speech, "timestamp": timestamp})
+        
+        # 将对话历史保存到文件
+        save_dialogue_history(dialogue_history, conference_id, phase_id)
+        print(moderator_speech)
+    
+    # 进行2轮专家讨论
+    discussion_rounds = 2
+    print(f"开始 {discussion_rounds} 轮讨论，每轮 {len(other_agents)} 个专家发言")
+    
+    for round_num in range(discussion_rounds):
+        print(f"开始第 {round_num + 1} 轮讨论")
+        random.shuffle(other_agents)  # 每轮重新洗牌
+        
+        for agent in other_agents:
+            # 获取上一条发言作为上下文
+            previous_speech = dialogue_history[-1] if dialogue_history else None
+            
+            # 如果previous_speech是用户提问，我们需要确保代理看到提问和回答的上下文
+            if previous_speech and previous_speech.get("agent_id") == "用户" and len(dialogue_history) >= 2:
+                # 使用倒数第二条记录，也就是代理的回答
+                previous_speech = dialogue_history[-2]
+            
+            # 生成专家发言，传递搜索结果避免重复搜索
+            speech = agent_speak(agent.agent_id, conference_id, "专家讨论", topic, previous_speech, search_results)
+            timestamp = datetime.now().isoformat()
+            dialogue_history.append({"agent_id": agent.agent_id, "speech": speech, "timestamp": timestamp})
+            
+            # 将对话历史保存到文件，用于实时流式传输
+            save_dialogue_history(dialogue_history, conference_id, phase_id)
+            print(speech)
+    
+    # 主持人总结发言
+    print(f"主持人 {moderator.name} 准备总结发言...")
+    summary_speech = moderator_summary_speech(moderator, topic, dialogue_history)
+    timestamp = datetime.now().isoformat()
+    dialogue_history.append({"agent_id": moderator.agent_id, "speech": summary_speech, "timestamp": timestamp})
+    
+    # 将对话历史保存到文件，用于实时流式传输
+    save_dialogue_history(dialogue_history, conference_id, phase_id)
+    print(summary_speech)
+    
+    return dialogue_history
+
+# 初始化用户提问阶段
+def initialize_user_question_phase(moderator, other_agents, topic, conference_id, phase_id):
+    """初始化用户提问阶段"""
+    dialogue_history = []
+    
+    # 尝试加载上一阶段的对话历史
+    prev_history_file = os.path.join("dialogue_histories", f"dialogue_history_{conference_id}_{phase_id-1}.json")
+    
+    try:
+        if os.path.exists(prev_history_file):
+            with open(prev_history_file, "r", encoding='utf-8') as f:
+                prev_history = json.load(f)
+                if prev_history:
+                    # 获取主持人的总结发言
+                    # 注意：我们使用传入的moderator参数，确保使用相同的主持人
+                    moderator_entries = [item for item in prev_history if item.get("agent_id") == moderator.agent_id]
+                    if moderator_entries and len(moderator_entries) > 0:
+                        # 获取最后一条主持人发言（应该是总结）
+                        moderator_summary = moderator_entries[-1]
+                        dialogue_history.append(moderator_summary)
+    except Exception as e:
+        print(f"加载上一阶段对话历史时出错: {str(e)}")
+    
+    # 如果没有加载到上一阶段的对话历史，则添加一条提示信息
+    if not dialogue_history:
+        timestamp = datetime.now().isoformat()
+        prompt_message = f"现在进入用户提问环节。请向专家提出关于'{topic}'的问题。"
+        dialogue_history.append({"agent_id": "系统", "speech": prompt_message, "timestamp": timestamp})
+    
+    # 将对话历史保存到文件，用于实时流式传输
+    save_dialogue_history(dialogue_history, conference_id, phase_id)
+    
+    return dialogue_history
+
+# 初始化会议结束阶段
+def initialize_meeting_end_phase(moderator, other_agents, topic, conference_id, phase_id):
+    """初始化会议结束阶段"""
+    dialogue_history = []
+    
+    # 尝试加载上一阶段的对话历史
+    prev_history_file = os.path.join("dialogue_histories", f"dialogue_history_{conference_id}_{phase_id-1}.json")
+    
+    try:
+        if os.path.exists(prev_history_file):
+            with open(prev_history_file, "r", encoding='utf-8') as f:
+                prev_history = json.load(f)
+                if prev_history:
+                    # 获取最后几条对话记录
+                    # 注意：我们确保包含主持人的发言，以保持主持人的一致性
+                    last_entries = prev_history[-3:] if len(prev_history) >= 3 else prev_history
+                    dialogue_history.extend(last_entries)
+                    
+                    # 确保主持人信息一致
+                    moderator_entry = next((item for item in prev_history if item.get("agent_id") == moderator.agent_id), None)
+                    if moderator_entry and not any(item.get("agent_id") == moderator.agent_id for item in dialogue_history):
+                        dialogue_history.append(moderator_entry)
+    except Exception as e:
+        print(f"加载上一阶段对话历史时出错: {str(e)}")
+    
+    # 添加一条提示信息
+    timestamp = datetime.now().isoformat()
+    prompt_message = f"会议即将结束。您可以再次提问，发表意见，或选择结束会议。"
+    dialogue_history.append({"agent_id": "系统", "speech": prompt_message, "timestamp": timestamp})
+    
+    # 将对话历史保存到文件，用于实时流式传输
+    save_dialogue_history(dialogue_history, conference_id, phase_id)
+    
     return dialogue_history
 
 # 代理发言的函数
-def agent_speak(agent_id, conference_id, phase_name, topic, previous_speech=None):
+def agent_speak(agent_id, conference_id, phase_name, topic, previous_speech=None, search_results=None):
     """为阶段生成并返回代理的发言。"""
     agent = get_agent(agent_id)
     if not agent:
@@ -538,11 +1014,11 @@ def agent_speak(agent_id, conference_id, phase_name, topic, previous_speech=None
     if not conference:
         return f"未找到ID为 {conference_id} 的会议！"
 
-    return generate_agent_speech(agent, phase_name, topic, previous_speech)
+    return generate_agent_speech(agent, phase_name, topic, previous_speech, search_results)
 
 # 用户干预的函数
 def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, user_input=None):
-    """允许用户中断或为特定阶段提问。"""
+    """允许用户中断或提问。"""
     conference = get_conference(conference_id)
     if not conference:
         print(f"未找到ID为 {conference_id} 的会议！")
@@ -571,85 +1047,186 @@ def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, u
         # 解析模型字符串，获取提供商和模型名称
         provider, model_name = parse_model_string(agent_model)
         
-        prompt = f"""作为 {agent.name}，请回答用户关于 {topic} 的问题："{user_input}"
+        # 统一处理用户提问
+        print(f"用户向 {agent.name} 提问: {user_input}")
+        
+        # 使用handle_user_question_phase处理所有用户提问
+        return handle_user_question_phase(conference_id, phase_id, agent, provider, model_name, topic, user_input)
+    else:
+        print(f"无效的用户操作: {user_action}")
+        return False
+
+# 处理用户提问阶段的提问
+def handle_user_question_phase(conference_id, phase_id, agent, provider, model_name, topic, user_input):
+    """处理用户提问阶段的提问，主持人搜索不同信源，其他专家讨论1轮，然后主持人总结"""
+    # 获取会议参与者
+    conference = get_conference(conference_id)
+    agents = [get_agent(agent_id) for agent_id in conference.participant_agent_ids]
+    
+    # 使用相同的随机种子选择主持人，确保与第一阶段相同
+    moderator, other_agents = select_moderator(agents, conference_id)
+    
+    # 主持人搜索不同信源
+    print(f"主持人 {moderator.name} 搜索关于用户问题的不同信源...")
+    # 注意：search_latest_info 只接受两个参数，移除第三个参数 search_engine
+    search_info = search_latest_info(f"{topic} {user_input}", ", ".join(agent.background_info.get("skills", [])))
+    
+    # 加载当前对话历史
+    dialogue_history = []
+    history_dir = "dialogue_histories"
+    history_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{phase_id}.json")
+    
+    try:
+        if os.path.exists(history_file):
+            with open(history_file, "r", encoding='utf-8') as f:
+                dialogue_history = json.load(f)
+    except Exception as e:
+        print(f"加载对话历史时出错: {str(e)}")
+    
+    # 添加用户提问
+    timestamp = datetime.now().isoformat()
+    user_question = f"提问给 {agent.name}: {user_input}"
+    dialogue_history.append({"agent_id": "用户", "speech": user_question, "timestamp": timestamp})
+    
+    # 保存对话历史
+    save_dialogue_history(dialogue_history, conference_id, phase_id)
+    
+    # 生成专家回答
+    prompt = f"""作为 {agent.name}，请回答用户关于 {topic} 的问题："{user_input}"
+
+以下是主持人搜索到的关于该问题的最新信息，请在回答中适当参考：
+{search_info}
 
 你的回答需要：
 1. 直接切入问题核心，避免不必要的铺垫
 2. 基于你的 {', '.join(agent.background_info.get('skills', []))} 专业背景，提供具体且全面的分析
 3. 引用相关研究、数据或案例支持你的观点
-4. 如可能，提出1-2个具体且可行的解决方案或建议
-5. 坦诚讨论可能的挑战、限制或不同观点
+4. 如可能，提出1个具体且可行的解决方案或建议
+5. 简要讨论可能的挑战或限制
 
 请以 {agent.communication_style.get('tone', '中立')} 的语调回答，保持专业性的同时确保内容通俗易懂。
 请用中文回答，引用其他代理时请使用他们的名字而不是代号。
-限制在300字以内，保持内容丰富但简洁。"""
+限制在200字以内，保持内容简洁但有深度。"""
+    
+    try:
+        print(f"正在使用 {provider} 的 {model_name} 模型生成 {agent.name} 的回应...")
+        answer = call_llm_api(
+            provider, 
+            model_name, 
+            prompt, 
+            max_tokens=int(os.getenv("MAX_TOKENS", "4000")),
+            temperature=float(os.getenv("TEMPERATURE", "0.7"))
+        )
         
-        try:
-            print(f"正在使用 {provider} 的 {model_name} 模型生成 {agent.name} 的回应...")
-            answer = call_llm_api(
-                provider, 
-                model_name, 
-                prompt, 
-                max_tokens=int(os.getenv("MAX_TOKENS", "4000")),
-                temperature=float(os.getenv("TEMPERATURE", "0.7"))
-            )
+        # 检查返回的结果是否包含错误信息
+        if answer.startswith("错误：") or answer.startswith("API 调用错误："):
+            raise Exception(answer)
             
-            # 检查返回的结果是否包含错误信息
-            if answer.startswith("错误：") or answer.startswith("API 调用错误："):
-                raise Exception(answer)
+        # 替换代理ID为对应名称
+        conference_agents = [a.agent_id for a in list_agents()]
+        answer = get_referenced_agent_name(answer, conference_agents)
+        
+        # 添加专家回答到对话历史
+        timestamp = datetime.now().isoformat()
+        dialogue_history.append({"agent_id": agent.agent_id, "speech": answer, "timestamp": timestamp})
+        
+        # 保存对话历史
+        save_dialogue_history(dialogue_history, conference_id, phase_id)
+        print(f"专家 {agent.name} 已回答用户问题")
+        
+        # 其他专家讨论1轮
+        # 限制参与讨论的专家数量
+        max_agents_per_round = int(os.getenv("MAX_AGENTS_PER_ROUND", "2"))  # 减少专家数量以提高性能
+        if len(other_agents) > max_agents_per_round:
+            random.shuffle(other_agents)
+            other_agents = other_agents[:max_agents_per_round]
+        
+        # 排除已回答问题的专家
+        other_agents = [a for a in other_agents if a.agent_id != agent.agent_id]
+        
+        # 如果还有其他专家，让他们进行讨论
+        if other_agents:
+            print(f"其他专家开始讨论用户的问题... (共 {len(other_agents)} 位专家)")
+            for i, other_agent in enumerate(other_agents):
+                print(f"专家 {i+1}/{len(other_agents)}: {other_agent.name} 正在准备发言...")
                 
-            # 替换代理ID为对应名称
-            conference_agents = [a.agent_id for a in list_agents()]
-            answer = get_referenced_agent_name(answer, conference_agents)
-        except Exception as e:
-            answer = f"错误：无法生成回应 ({str(e)})"
+                # 获取用户问题和专家回答作为上下文
+                user_question_entry = dialogue_history[-2] if len(dialogue_history) >= 2 else None
+                expert_answer_entry = dialogue_history[-1] if dialogue_history else None
+                
+                # 为其他专家创建特定的提示，确保他们参考用户问题和专家回答
+                expert_prompt = f"""作为 {other_agent.name}，请针对以下用户问题和专家回答发表您的看法：
 
-        print(f"用户向 {agent.name} 提问：'{user_input}'")
-        print(f"{agent.name} 回应：{answer}")
+用户问题: {user_input}
 
-        # 添加到对话历史
-        history_dir = "dialogue_histories"
-        history_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{phase_id}.json")
-        old_history_file = f"dialogue_history_{conference_id}_{phase_id}.json"
+{agent.name} 的回答:
+{answer}
+
+以下是关于该问题的最新信息，请在回答中适当参考：
+{search_info}
+
+请基于您的 {', '.join(other_agent.background_info.get('skills', []))} 专业背景，对 {agent.name} 的回答进行补充、扩展或提供不同角度的见解。
+您可以：
+1. 补充遗漏的重要信息
+2. 提供不同的专业视角
+3. 友善地指出可能的不准确之处
+4. 分享相关的案例或研究
+
+请以 {other_agent.communication_style.get('tone', '中立')} 的语调回答，保持专业性的同时确保内容通俗易懂。
+请用中文回答，引用其他专家时请使用他们的名字而不是代号。
+限制在200字以内，保持内容简洁但有深度。"""
+
+                # 使用与主要专家相同的提供商和模型
+                print(f"正在使用 {provider} 的 {model_name} 模型生成 {other_agent.name} 的回应...")
+                try:
+                    speech = call_llm_api(
+                        provider, 
+                        model_name, 
+                        expert_prompt, 
+                        max_tokens=int(os.getenv("MAX_TOKENS", "4000")),
+                        temperature=float(os.getenv("TEMPERATURE", "0.7"))
+                    )
+                    
+                    # 检查返回的结果是否包含错误信息
+                    if speech.startswith("错误：") or speech.startswith("API 调用错误："):
+                        raise Exception(speech)
+                        
+                    # 替换代理ID为对应名称
+                    speech = get_referenced_agent_name(speech, conference_agents)
+                except Exception as e:
+                    speech = f"很抱歉，由于技术原因，{other_agent.name} 暂时无法参与讨论。({str(e)})"
+                
+                timestamp = datetime.now().isoformat()
+                dialogue_history.append({"agent_id": other_agent.agent_id, "speech": speech, "timestamp": timestamp})
+                
+                # 保存对话历史
+                save_dialogue_history(dialogue_history, conference_id, phase_id)
+                print(f"专家 {other_agent.name} 已完成发言")
+        else:
+            print("没有其他专家可以参与讨论")
         
-        try:
-            # 先尝试从新位置加载
-            if os.path.exists(history_file):
-                with open(history_file, "r", encoding='utf-8') as f:
-                    history = json.load(f)
-            # 再尝试从旧位置加载
-            elif os.path.exists(old_history_file):
-                with open(old_history_file, "r", encoding='utf-8') as f:
-                    history = json.load(f)
-                # 将旧文件移动到新位置
-                if not os.path.exists(history_dir):
-                    os.makedirs(history_dir)
-                shutil.move(old_history_file, history_file)
-            else:
-                history = []
-        except (FileNotFoundError, json.JSONDecodeError):
-            history = []
-        
-        # 添加用户提问作为对话历史的一部分
+        # 主持人总结讨论
+        print(f"主持人 {moderator.name} 准备总结讨论...")
+        summary_speech = moderator_summary_speech(moderator, topic, dialogue_history)
         timestamp = datetime.now().isoformat()
-        user_question_entry = {
-            "agent_id": "用户", 
-            "speech": f"提问给 {agent.name}: {user_input}", 
-            "timestamp": timestamp
-        }
-        history.append(user_question_entry)
+        dialogue_history.append({"agent_id": moderator.agent_id, "speech": summary_speech, "timestamp": timestamp})
         
-        # 添加代理回答
+        # 保存对话历史
+        save_dialogue_history(dialogue_history, conference_id, phase_id)
+        print(f"主持人 {moderator.name} 已完成总结")
+        
+        # 添加系统提示，告知用户可以继续提问或结束会议
         timestamp = datetime.now().isoformat()
-        history.append({"agent_id": target_agent_id, "speech": answer, "timestamp": timestamp})
+        system_prompt = f"主持人已总结完毕，您可以继续向专家提问，或选择结束会议。"
+        dialogue_history.append({"agent_id": "系统", "speech": system_prompt, "timestamp": timestamp})
+        save_dialogue_history(dialogue_history, conference_id, phase_id)
+        print("系统提示已添加，用户可以继续提问或结束会议")
         
-        # 保存更新后的对话历史
-        save_dialogue_history(history, conference_id, phase_id)
+    except Exception as e:
+        print(f"处理用户提问时出错: {str(e)}")
+        answer = f"错误：无法生成回应 ({str(e)})"
         
-        return answer
-    else:
-        print("无效的干预操作！")
-        return False
+    return answer
 
 def save_dialogue_history(dialogue_history, conference_id, phase_id):
     """保存对话历史到JSON文件"""
@@ -657,16 +1234,238 @@ def save_dialogue_history(dialogue_history, conference_id, phase_id):
     history_dir = "dialogue_histories"
     if not os.path.exists(history_dir):
         os.makedirs(history_dir)
+        print(f"创建对话历史目录: {history_dir}")
         
     # 构建文件名
     filename = f"dialogue_history_{conference_id}_{phase_id}.json"
     file_path = os.path.join(history_dir, filename)
     
     # 保存对话历史
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(dialogue_history, f, ensure_ascii=False, indent=2)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(dialogue_history, f, ensure_ascii=False, indent=2)
+        print(f"对话历史已保存到 {file_path} (共 {len(dialogue_history)} 条记录)")
+    except Exception as e:
+        print(f"保存对话历史时出错: {str(e)}")
     
     return filename
+
+# 选择主持人的函数
+def select_moderator(agents, conference_id=None, phase_id=None):
+    """
+    从参与会议的专家中选择一位作为主持人
+    
+    参数:
+        agents: 参与会议的专家列表
+        conference_id: 会议ID，用于保持主持人选择的一致性
+        phase_id: 阶段ID，不再使用，保留参数是为了兼容性
+        
+    返回:
+        选定的主持人和剩余的专家列表
+    """
+    if not agents or len(agents) == 0:
+        return None, []
+    
+    # 如果只有一位专家，那么他就是主持人
+    if len(agents) == 1:
+        return agents[0], []
+    
+    # 只使用会议ID作为随机种子，忽略阶段ID，确保整个会议只有一个主持人
+    if conference_id:
+        # 使用会议ID作为随机种子
+        seed = hash(f"{conference_id}") % 10000
+        random.seed(seed)
+        
+    # 随机选择一位专家作为主持人
+    moderator_index = random.randint(0, len(agents) - 1)
+    moderator = agents[moderator_index]
+    
+    # 创建剩余专家列表
+    remaining_agents = agents.copy()
+    remaining_agents.pop(moderator_index)
+    
+    # 重置随机种子
+    random.seed()
+    
+    print(f"已选择 {moderator.name} 作为本次讨论的主持人")
+    return moderator, remaining_agents
+
+# 主持人开场发言函数
+def moderator_opening_speech(moderator, topic, search_results=None):
+    """
+    生成主持人的开场白，包括主题介绍和搜索结果
+    
+    参数:
+        moderator: 主持人对象
+        topic: 讨论主题
+        search_results: 搜索结果，如果为None则会进行搜索
+        
+    返回:
+        主持人的开场白
+    """
+    skills = ", ".join(moderator.background_info.get("skills", []))
+    mbti = moderator.personality_traits.get("mbti", "未知")
+    style = moderator.communication_style.get("style", "中立")
+    tone = moderator.communication_style.get("tone", "中立")
+    
+    # 如果没有提供搜索结果，则进行搜索
+    if search_results is None:
+        # 从环境变量获取是否启用搜索
+        enable_search = os.getenv("ENABLE_SEARCH", "true").lower() == "true"
+        
+        if enable_search:
+            # 从环境变量获取搜索引擎
+            search_engine = os.getenv("SEARCH_ENGINE", "tavily")
+            print(f"主持人 {moderator.name} 使用 {search_engine} 搜索关于 '{topic}' 的最新信息...")
+            search_results = search_latest_info(topic, skills)
+        else:
+            search_results = f"搜索功能已禁用。请基于您的专业知识和理解来讨论主题：{topic}"
+    
+    print(f"主持人 {moderator.name} 搜索到的最新信息: {search_results[:100]}..." if len(search_results) > 100 else search_results)
+    
+    # 构建主持人开场白的提示词
+    prompt = f"""作为 {moderator.name}，你是{moderator.background_info["field"]}领域的顶尖专家，同时也是本次关于"{topic}"讨论的主持人。
+
+你的MBTI类型是{mbti}，沟通风格是{style}，语气{tone}。
+你的专业技能包括: {skills}
+
+以下是关于该主题的最新信息，请在开场白中适当参考：
+{search_results}
+
+作为主持人，请提供一个简洁、专业且引人入胜的开场白，包括：
+
+1. 简短介绍本次讨论的主题"{topic}"及其重要性
+2. 概述该主题的1-2个关键方面或挑战
+3. 分享1个来自最新研究或数据的重要发现
+4. 提出1-2个值得深入探讨的关键问题
+5. 邀请其他专家从各自专业角度参与讨论
+
+回复格式要求:
+1. 不要使用Markdown格式
+2. 不要包含标题
+3. 以"各位专家，欢迎参加今天关于'{topic}'的圆桌讨论..."开头
+4. 以"请各位专家从自己的专业角度分享见解..."结尾
+5. 回应长度必须控制在200字以内
+6. 必须使用中文回答
+7. 语言必须简洁、精确且富有洞察力
+"""
+
+    # 获取该代理的模型字符串
+    agent_model = os.getenv(f"MODEL_{moderator.agent_id}", os.getenv("DEFAULT_MODEL", f"{DEFAULT_PROVIDER}:gpt-3.5-turbo"))
+    
+    # 解析模型字符串，获取提供商和模型名称
+    provider, model_name = parse_model_string(agent_model)
+    
+    # 调用 API
+    print(f"正在使用 {provider} 的 {model_name} 模型生成 {moderator.name} 的主持人开场白...")
+    speech = call_llm_api(
+        provider, 
+        model_name, 
+        prompt, 
+        max_tokens=int(os.getenv("MAX_TOKENS", "4096")),
+        temperature=float(os.getenv("TEMPERATURE", "0.7"))
+    )
+    
+    # 检查返回的结果是否包含错误信息
+    if speech and not speech.startswith("错误：") and not speech.startswith("API 调用错误："):
+        return speech
+    else:
+        # 如果API调用失败，返回一个基本的开场白
+        return f"""各位专家，欢迎参加今天关于'{topic}'的圆桌讨论。
+
+很遗憾，在准备开场白时遇到了技术问题。但这不影响我们今天的讨论。
+
+请各位专家从自己的专业角度分享对'{topic}'的见解和建议。
+
+{speech if speech else "API调用失败，无法生成完整开场白。"}
+"""
+
+# 主持人总结发言函数
+def moderator_summary_speech(moderator, topic, dialogue_history):
+    """
+    生成主持人的总结发言，基于之前的对话
+    
+    参数:
+        moderator: 主持人对象
+        topic: 讨论主题
+        dialogue_history: 之前的对话历史
+        
+    返回:
+        主持人的总结发言
+    """
+    if not dialogue_history or len(dialogue_history) == 0:
+        return f"由于没有有效的对话历史，{moderator.name}无法提供总结。"
+    
+    skills = ", ".join(moderator.background_info.get("skills", []))
+    mbti = moderator.personality_traits.get("mbti", "未知")
+    style = moderator.communication_style.get("style", "中立")
+    tone = moderator.communication_style.get("tone", "中立")
+    
+    # 提取对话内容
+    dialogue_content = ""
+    for entry in dialogue_history:
+        agent_id = entry.get("agent_id", "未知")
+        if agent_id != moderator.agent_id:  # 排除主持人自己的发言
+            agent_name = get_agent_name_by_id(agent_id) or agent_id
+            speech = entry.get("speech", "")
+            dialogue_content += f"{agent_name}: {speech}\n\n"
+    
+    # 构建主持人总结发言的提示词
+    prompt = f"""作为 {moderator.name}，你是{moderator.background_info["field"]}领域的顶尖专家，同时也是本次关于"{topic}"讨论的主持人。
+
+你的MBTI类型是{mbti}，沟通风格是{style}，语气{tone}。
+你的专业技能包括: {skills}
+
+以下是专家们关于"{topic}"的讨论内容：
+{dialogue_content}
+
+作为主持人，请提供一个简洁、专业且有洞察力的讨论总结，包括：
+
+1. 简短回顾本次讨论的主题"{topic}"
+2. 总结各位专家提出的2-3个主要观点和见解
+3. 指出1个专家们达成共识的方面
+4. 分析1个存在分歧或需要进一步探讨的问题
+5. 提炼出1-2个关键的行动建议或结论
+
+回复格式要求:
+1. 不要使用Markdown格式
+2. 不要包含标题
+3. 以"感谢各位专家的精彩分享..."开头
+4. 以"下面，我们欢迎听众提问，请各位专家继续为大家解答疑惑..."结尾
+5. 回应长度必须控制在200字以内
+6. 必须使用中文回答
+7. 语言必须简洁、精确且富有洞察力
+"""
+
+    # 获取该代理的模型字符串
+    agent_model = os.getenv(f"MODEL_{moderator.agent_id}", os.getenv("DEFAULT_MODEL", f"{DEFAULT_PROVIDER}:gpt-3.5-turbo"))
+    
+    # 解析模型字符串，获取提供商和模型名称
+    provider, model_name = parse_model_string(agent_model)
+    
+    # 调用 API
+    print(f"正在使用 {provider} 的 {model_name} 模型生成 {moderator.name} 的总结发言...")
+    speech = call_llm_api(
+        provider, 
+        model_name, 
+        prompt, 
+        max_tokens=int(os.getenv("MAX_TOKENS", "4096")),
+        temperature=float(os.getenv("TEMPERATURE", "0.7"))
+    )
+    
+    # 检查返回的结果是否包含错误信息
+    if speech and not speech.startswith("错误：") and not speech.startswith("API 调用错误："):
+        return speech
+    else:
+        # 如果API调用失败，返回一个基本的总结
+        return f"""感谢各位专家关于"{topic}"的精彩分享。
+
+很遗憾，在准备总结发言时遇到了技术问题。但这不影响我们今天讨论的价值。
+
+下面，我们欢迎听众提问，请各位专家继续为大家解答疑惑。
+
+{speech if speech else "API调用失败，无法生成完整总结。"}
+"""
 
 # 测试代码
 if __name__ == "__main__":

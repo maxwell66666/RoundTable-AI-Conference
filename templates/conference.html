@@ -345,8 +345,7 @@
     
     <div class="phase-info">
         <div>
-            <span class="phase-number">阶段 {{ conference.current_phase_index + 1 }}/{{ conference.agenda|length }}</span>: 
-            <strong>{{ conference.agenda[conference.current_phase_index].phase_type }}</strong>
+            <strong>{{ conference.agenda[conference.current_phase_index].phase_name }}</strong>
         </div>
         <div>
             讨论主题: <strong>{{ conference.agenda[conference.current_phase_index].topics[0] }}</strong>
@@ -416,9 +415,6 @@
     </div>
     <div class="form-section">
         <h3>会议控制</h3>
-        <form action="/conference/{{ conference.conference_id }}/advance" method="post" style="display: inline;">
-            <button type="submit" class="action-btn">推进阶段</button>
-        </form>
         <form action="/conference/{{ conference.conference_id }}/end" method="post" style="display: inline;">
             <button type="submit" class="action-btn end-btn">结束会议</button>
         </form>
@@ -434,10 +430,10 @@
         <div class="sidebar-section">
             <div class="sidebar-header" style="font-size: 1rem;">会议信息</div>
             <div class="conference-meta">
-                当前阶段: {{ conference.current_phase_index + 1 }} / {{ conference.agenda|length }}
+                主题: {{ conference.agenda[conference.current_phase_index].topics|join(', ') }}
             </div>
             <div class="conference-meta">
-                主题: {{ conference.agenda[conference.current_phase_index].topics|join(', ') }}
+                说明: 主持人开场并搜索信息，专家讨论，用户可随时提问
             </div>
         </div>
         
@@ -541,19 +537,67 @@
             
             li.appendChild(speechDiv);
             
+            // 添加时间戳
             if (data.timestamp) {
-                const timeSpan = document.createElement("span");
-                timeSpan.className = "timestamp";
-                timeSpan.textContent = data.timestamp;
-                li.appendChild(timeSpan);
+                const timestamp = document.createElement("span");
+                timestamp.className = "timestamp";
+                
+                // 格式化时间戳
+                const date = new Date(data.timestamp);
+                const formattedTime = date.toLocaleTimeString('zh-CN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                
+                timestamp.textContent = formattedTime;
+                li.appendChild(timestamp);
             }
             
             dialogueList.appendChild(li);
             
-            // 自动滚动到底部
-            window.scrollTo(0, document.body.scrollHeight);
+            // 滚动到底部
+            dialogueList.scrollTop = dialogueList.scrollHeight;
+            
+            // 获取当前阶段和会议ID
+            const currentPhaseIndex = {{ conference.current_phase_index }};
+            const conferenceId = "{{ conference.conference_id }}";
+            
+            // 检查是否是主持人发言
+            const isModerator = data.agent_id && data.agent_id.startsWith("A"); // 假设主持人ID以A开头
+            
+            // 检查是否是系统消息
+            const isSystem = data.agent_id === "系统";
+            
+            // 新的会议流程逻辑
+            if (isModerator) {
+                // 如果是主持人的开场发言（包含"欢迎参加"或"各位专家，欢迎"等开场白特征）
+                if (speech.includes("欢迎参加") || speech.includes("各位专家，欢迎")) {
+                    console.log("检测到主持人开场发言，专家将自动开始讨论");
+                    // 不需要推进阶段，专家讨论会自动开始
+                }
+                // 如果是主持人的总结发言（包含"感谢各位专家"或"下面，我们欢迎听众提问"等总结特征）
+                else if (speech.includes("感谢各位专家") || speech.includes("下面，我们欢迎听众提问")) {
+                    console.log("检测到主持人总结发言，准备进入用户提问环节");
+                    // 显示一个提示，告诉用户可以提问了
+                    const systemMessage = document.createElement("li");
+                    systemMessage.className = "dialogue-enter";
+                    systemMessage.innerHTML = `<span class="agent-name">系统</span>: <div class="speech-content"><p>主持人已总结完毕，您现在可以向专家提问。请在下方选择"提问"并选择要提问的专家。</p></div>`;
+                    dialogueList.appendChild(systemMessage);
+                    
+                    // 自动切换到提问模式
+                    const actionSelect = document.getElementById("action");
+                    if (actionSelect) {
+                        actionSelect.value = "question";
+                        toggleQuestionFields();
+                    }
+                }
+            }
+            
+            // 如果是专家回答用户问题后，其他专家会自动讨论，不需要用户干预
+            // 这部分逻辑在后端处理
         }
-
+        
         function toggleQuestionFields() {
             const action = document.getElementById("action").value;
             const questionFields = document.getElementById("question-fields");

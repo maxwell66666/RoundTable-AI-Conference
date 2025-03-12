@@ -29,7 +29,7 @@ DEFAULT_PROVIDER=oneapi
 
 # OneAPI 配置
 ONEAPI_API_KEY=your_oneapi_key_here
-ONEAPI_BASE_URL=https://api.oneapi.com/v1
+ONEAPI_BASE_URL=https://api.ffa.chat/v1
 
 # OpenAI 配置
 OPENAI_API_KEY=your_openai_key_here

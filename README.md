@@ -7,6 +7,16 @@
 ![GitHub stars](https://img.shields.io/github/stars/yourusername/RoundTable)
 ![License](https://img.shields.io/github/license/yourusername/RoundTable)
 
+## 最新更新
+
+### 2024年3月更新
+
+- **专家回答优化**：所有专家回答现在限制在200字以内，同时保持深度和洞察力
+- **引用要求**：专家回答现在需要引用研究数据、行业案例或专业经验
+- **解决方案改进**：专家提出的解决方案现在包含具体实施步骤和预期效果
+- **默认搜索引擎**：将默认搜索引擎从SearXNG更改为Tavily，提高搜索稳定性
+- **UI简化**：移除了"推进阶段"按钮，简化会议流程
+
 ## 版本管理
 
 该项目使用语义化版本控制：`主版本号.次版本号.修订号`
@@ -339,4 +349,53 @@ docker exec roundtable-app python backup.py create
 
 ## 许可证
 
-[MIT License](LICENSE) 
+[MIT License](LICENSE)
+
+# OpenRouter API 支持
+
+RoundTable 现在支持使用 OpenRouter API 作为模型提供商，这为您提供了更多的模型选择和更稳定的 API 访问。
+
+## 配置 OpenRouter
+
+1. 注册 OpenRouter 账户并获取 API 密钥：
+   - 访问 [OpenRouter](https://openrouter.ai/) 并创建账户
+   - 在控制面板中生成 API 密钥
+
+2. 在 `.env` 文件中添加以下配置：
+   ```
+   OPENROUTER_API_KEY=your_openrouter_key_here
+   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+   ```
+
+3. 使用 OpenRouter 模型：
+   - 在创建会议时，指定模型为 `openrouter:模型名称`
+   - 例如：`openrouter:anthropic/claude-3-opus:20240229`
+
+## 可用模型
+
+OpenRouter 提供了多种模型，包括：
+
+- `anthropic/claude-3-opus:20240229`
+- `anthropic/claude-3-sonnet:20240229`
+- `anthropic/claude-3-haiku:20240307`
+- `openai/gpt-4-turbo`
+- `openai/gpt-4o`
+- `google/gemini-pro`
+- `meta-llama/llama-3-70b-instruct`
+
+完整的模型列表请参考 [OpenRouter 模型列表](https://openrouter.ai/docs#models)。
+
+## 优势
+
+- **API 稳定性**：OpenRouter 提供了多个后端服务，提高了 API 的可用性和稳定性
+- **模型多样性**：可以访问多个提供商的模型，而只需要一个 API 密钥
+- **简化计费**：统一的计费系统，无需管理多个 API 提供商的账单
+
+## 故障排除
+
+如果遇到 OpenRouter API 连接问题：
+
+1. 确认 API 密钥是否正确
+2. 检查网络连接是否稳定
+3. 验证模型名称是否正确
+4. 尝试增加 `API_TIMEOUT` 值（默认为 30 秒） 

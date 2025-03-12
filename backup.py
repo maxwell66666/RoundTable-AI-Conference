@@ -365,27 +365,25 @@ def create_schedule_script():
     """创建定时备份的调度脚本"""
     # 为不同平台创建调度脚本
     if os.name == 'nt':  # Windows
-        script_content = """@echo off
-REM 定时备份脚本 - Windows版
-python backup.py create
-"""
-        with open("schedule_backup.bat", "w") as f:
-            f.write(script_content)
-        logger.info("已创建Windows调度脚本: schedule_backup.bat")
-        logger.info("请使用Windows任务计划程序设置定时运行")
-        
-    else:  # Linux/Mac
-        script_content = """#!/bin/bash
-# 定时备份脚本 - Linux/Mac版
-python3 backup.py create
-"""
-        script_path = "schedule_backup.sh"
-        with open(script_path, "w") as f:
-            f.write(script_content)
-        os.chmod(script_path, 0o755)  # 添加执行权限
-        logger.info(f"已创建Linux/Mac调度脚本: {script_path}")
-        logger.info("请使用crontab设置定时运行")
-        logger.info("示例 (每天2:00运行): 0 2 * * * cd /path/to/roundtable && ./schedule_backup.sh")
+        try:
+            with open("schedule_backup.bat", "w", encoding='utf-8') as f:
+                f.write(f'@echo off\n')
+                f.write(f'schtasks /create /sc {schedule} /tn "RoundTable自动备份" /tr "{sys.executable} {os.path.abspath(__file__)} --auto" /f\n')
+                f.write(f'echo 已创建计划任务: RoundTable自动备份 ({schedule})\n')
+            os.system("schedule_backup.bat")
+            os.remove("schedule_backup.bat")
+        except Exception as e:
+            print(f"创建Windows计划任务失败: {str(e)}")
+    # 创建Linux cron任务的脚本
+    elif sys.platform.startswith("linux"):
+        try:
+            script_path = os.path.expanduser("~/roundtable_backup.sh")
+            with open(script_path, "w", encoding='utf-8') as f:
+                f.write("#!/bin/bash\n")
+                f.write(f"{sys.executable} {os.path.abspath(__file__)} --auto\n")
+            os.chmod(script_path, 0o755)  # 设置可执行权限
+        except Exception as e:
+            print(f"创建Linux cron任务失败: {str(e)}")
 
 def run_backup():
     """运行备份流程"""

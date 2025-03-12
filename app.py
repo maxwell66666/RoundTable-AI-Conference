@@ -8,7 +8,7 @@ import json
 import logging
 from round_table import start_phase_discussion, user_intervene, get_agent_name_by_id
 from conference_organizer import (
-    create_conference, start_conference, advance_phase, 
+    create_conference, start_conference, 
     end_phase, end_conference, get_conference, 
     list_conferences, init_conference_db, delete_conference
 )
@@ -129,6 +129,13 @@ def create_app():
     @app.on_event("startup")
     async def startup_db_client():
         print(f"正在启动 {VERSION_INFO['name']} v{VERSION_INFO['version']} (构建 {VERSION_INFO['build']})")
+        
+        # 确保对话历史目录存在
+        history_dir = "dialogue_histories"
+        if not os.path.exists(history_dir):
+            os.makedirs(history_dir)
+            print(f"创建对话历史目录: {history_dir}")
+        
         print("正在运行数据库迁移...")
         run_migrations()
         print("正在初始化数据库...")
@@ -136,6 +143,10 @@ def create_app():
         init_conference_db()
         init_agent_db()
         print("数据库初始化完成")
+        
+        # 设置版本信息
+        global APP_VERSION
+        APP_VERSION = os.getenv("APP_VERSION", "1.0.0")
     
     return app
 
@@ -458,24 +469,43 @@ async def manage_conference(request: Request, conference_id: str):
     try:
         conference = get_conference(conference_id)
         if not conference:
-            return HTMLResponse("错误：会议ID不存在", status_code=404)
+            return RedirectResponse(url="/conferences?error=会议不存在")
         
-        # 确保获取所有代理列表，而不只是会议参与者
-        all_agents = list_agents()
+        # 如果会议尚未开始，则启动会议
+        if conference.current_phase_index == -1:
+            start_conference(conference_id)
+            conference = get_conference(conference_id)
         
-        # 从数据库获取当前阶段的对话历史
-        conn = sqlite3.connect('conversations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT agent_id, speech, timestamp FROM conversations WHERE conference_id = ? AND phase_id = ?', 
-                       (conference_id, conference.current_phase_index))
-        dialogue = [{"agent_id": row[0], "speech": row[1], "timestamp": row[2]} for row in cursor.fetchall()]
-        conn.close()
+        # 获取对话历史
+        dialogue = []
+        try:
+            conn = sqlite3.connect('conversations.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT agent_id, speech, timestamp FROM conversations WHERE conference_id = ? AND phase_id = ? ORDER BY id',
+                          (conference_id, conference.current_phase_index))
+            
+            for row in cursor.fetchall():
+                agent_id, speech, timestamp = row
+                agent_name = get_agent_name_by_id(agent_id) if agent_id not in ["用户", "系统"] else agent_id
+                dialogue.append({
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "speech": speech,
+                    "timestamp": timestamp
+                })
+            conn.close()
+        except Exception as e:
+            print(f"获取对话历史时出错: {str(e)}")
         
+        # 获取所有代理
+        agents = list_agents()
+        
+        # 渲染会议管理页面
         return templates.TemplateResponse("conference.html", {
-            "request": request, 
-            "conference": conference, 
-            "agents": all_agents,  # 传递所有代理 
-            "dialogue": dialogue
+            "request": request,
+            "conference": conference,
+            "dialogue": dialogue,
+            "agents": agents
         })
     except Exception as e:
         return HTMLResponse(f"错误：{str(e)}", status_code=500)
@@ -505,7 +535,8 @@ async def save_dialogue_to_db(dialogue_entry, conference_id, phase_id):
 
 # 对话监控线程
 async def monitor_dialogue_file(conference_id, phase_id):
-    dialogue_file = f"dialogue_history_{conference_id}_{phase_id}.json"
+    history_dir = "dialogue_histories"
+    dialogue_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{phase_id}.json")
     last_size = 0
     last_count = 0
     
@@ -513,7 +544,7 @@ async def monitor_dialogue_file(conference_id, phase_id):
         try:
             dialogue_history = []
             try:
-                with open(dialogue_file, "r") as f:
+                with open(dialogue_file, "r", encoding='utf-8') as f:
                     dialogue_history = json.load(f)
             except (FileNotFoundError, json.JSONDecodeError):
                 # 文件可能还不存在或格式不正确，继续等待
@@ -541,16 +572,7 @@ async def monitor_dialogue_file(conference_id, phase_id):
         
         await asyncio.sleep(0.5)  # 每半秒检查一次
 
-# 推进阶段
-@app.post("/conference/{conference_id}/advance", response_class=HTMLResponse)
-async def advance_conference_phase(request: Request, conference_id: str):
-    try:
-        advance_phase(conference_id)
-        return await manage_conference(request, conference_id)
-    except Exception as e:
-        return HTMLResponse(f"错误：{str(e)}", status_code=500)
-
-# 结束阶段并处理讨论
+# 处理用户操作（提问或继续讨论）
 @app.post("/conference/{conference_id}/end_phase")
 async def end_conference_phase(request: Request, conference_id: str, action: str = Form(None), 
                               agent_id: str = Form(None), question: str = Form(None)):
@@ -566,9 +588,15 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
         message = "处理失败，请重试"
 
         # 使用超时执行任务 - 防止 API 调用卡住
-        async def run_with_timeout(func, *args, timeout=30):
+        async def run_with_timeout(func, *args, timeout=60):  # 增加默认超时时间到60秒
+            # 为特定函数设置更长的超时时间
+            if func.__name__ == "start_phase_discussion":
+                timeout = int(os.getenv("DISCUSSION_TIMEOUT", "180"))  # 讨论过程使用更长的超时时间，默认3分钟
+                logger.info(f"检测到讨论函数，使用更长的超时时间: {timeout}秒")
+                
             try:
                 # 使用线程池执行阻塞操作
+                logger.info(f"开始执行函数 {func.__name__} 超时设置为 {timeout}秒")
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     result = await asyncio.wait_for(
                         asyncio.get_event_loop().run_in_executor(pool, func, *args),
@@ -578,17 +606,22 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
                 # 处理不同类型的结果
                 if isinstance(result, bool):
                     # 布尔值结果
+                    logger.info(f"函数 {func.__name__} 执行完成，返回布尔值: {result}")
                     return {"success": result, "result": None}
                 elif isinstance(result, str) and (result.startswith("错误:") or result.startswith("讨论过程出错") or "失败" in result or "API" in result):
                     # 字符串形式的错误信息
+                    logger.error(f"函数 {func.__name__} 执行出错: {result}")
                     return {"success": False, "error": result}
                 else:
                     # 其他结果都视为成功
+                    logger.info(f"函数 {func.__name__} 执行成功")
                     return {"success": True, "result": result}
                     
             except asyncio.TimeoutError:
-                return {"success": False, "error": "操作超时，API 可能暂时不可用"}
+                logger.error(f"函数 {func.__name__} 执行超时 (超过 {timeout}秒)")
+                return {"success": False, "error": f"操作超时 (超过 {timeout}秒)，API 可能暂时不可用"}
             except Exception as e:
+                logger.error(f"函数 {func.__name__} 执行异常: {str(e)}", exc_info=True)
                 return {"success": False, "error": str(e)}
 
         # 根据不同的操作处理请求
@@ -596,7 +629,10 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
             message = "继续讨论"
             
             # 确保对话历史文件存在并包含最新的用户提问和代理回答
-            dialogue_file = f"dialogue_history_{conference_id}_{phase_id}.json"
+            history_dir = "dialogue_histories"
+            if not os.path.exists(history_dir):
+                os.makedirs(history_dir)
+            dialogue_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{phase_id}.json")
             try:
                 # 首先从数据库获取所有对话记录
                 conn = sqlite3.connect('conversations.db')
@@ -616,193 +652,128 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
                 
                 # 保存到JSON文件，确保文件包含最新的对话记录
                 if db_dialogue:
-                    with open(dialogue_file, "w") as f:
+                    with open(dialogue_file, "w", encoding='utf-8') as f:
                         json.dump(db_dialogue, f, indent=4)
                     print(f"已将 {len(db_dialogue)} 条对话记录写入文件 {dialogue_file}")
             except Exception as e:
                 print(f"更新对话历史文件时出错: {str(e)}")
             
-            # 启动对话监控任务
-            monitor_task = asyncio.create_task(monitor_dialogue_file(conference_id, phase_id))
-            dialogue_listeners[f"{conference_id}_{phase_id}"] = monitor_task
-            
-            try:
-                # 执行讨论任务并等待结果
-                discussion_result = await run_with_timeout(start_phase_discussion, conference_id, phase_id)
-                if not discussion_result["success"]:
-                    return JSONResponse({
-                        "message": f"启动讨论失败: {discussion_result['error']}", 
-                        "success": False,
-                        "error_type": "API错误"
-                    }, status_code=500)
-            except Exception as e:
-                return JSONResponse({
-                    "message": f"启动讨论出错: {str(e)}", 
-                    "success": False,
-                    "error_type": "系统错误"
-                }, status_code=500)
-            
-        elif action == "interrupt":
-            interrupt_result = await run_with_timeout(user_intervene, conference_id, phase_id, "interrupt")
-            if interrupt_result["success"]:
-                message = "已中断讨论"
+            # 创建或获取监听器任务
+            listener_key = f"{conference_id}_{phase_id}"
+            if listener_key in dialogue_listeners:
+                # 如果已有监听器，检查是否仍在运行
+                monitor_task = dialogue_listeners[listener_key]
+                if monitor_task.done():
+                    # 如果任务已完成，创建新的监听器
+                    monitor_task = asyncio.create_task(monitor_dialogue_file(conference_id, phase_id))
+                    dialogue_listeners[listener_key] = monitor_task
             else:
+                # 创建新的监听器
+                monitor_task = asyncio.create_task(monitor_dialogue_file(conference_id, phase_id))
+                dialogue_listeners[listener_key] = monitor_task
+            
+            # 中断当前讨论
+            interrupt_result = await run_with_timeout(user_intervene, conference_id, phase_id, "interrupt")
+            if not interrupt_result["success"]:
                 return JSONResponse({
-                    "message": f"中断讨论失败: {interrupt_result['error']}", 
+                    "message": f"中断讨论失败: {interrupt_result.get('error', '未知错误')}",
                     "success": False
                 }, status_code=500)
-                
-        elif action == "question":
-            # 增强参数验证
-            if not agent_id:
-                return JSONResponse({
-                    "message": "错误：提问时必须提供专家ID", 
-                    "success": False
-                }, status_code=400)
-                
-            if not question:
-                return JSONResponse({
-                    "message": "错误：提问时必须提供问题内容", 
-                    "success": False
-                }, status_code=400)
             
-            # 验证专家ID是否存在
-            agent = None
+            # 启动讨论
+            discussion_result = await run_with_timeout(start_phase_discussion, conference_id, phase_id)
+            if not discussion_result["success"]:
+                error_msg = discussion_result.get('error', '未知错误')
+                return JSONResponse({
+                    "message": f"启动讨论失败: {error_msg}",
+                    "success": False,
+                    "fallback_response": "AI服务暂时不可用，请稍后再试。"
+                }, status_code=500)
+            
+            return JSONResponse({
+                "message": "讨论已继续",
+                "success": True
+            })
+            
+        elif action == "question" and agent_id and question:
+            message = f"向 {agent_id} 提问"
+            
+            # 记录用户提问到数据库
             try:
-                from agent_db import get_agent
-                agent = get_agent(agent_id)
-                if not agent:
-                    return JSONResponse({
-                        "message": f"错误：专家ID '{agent_id}' 不存在", 
-                        "success": False
-                    }, status_code=400)
-            except Exception as e:
-                print(f"验证专家时出错: {str(e)}")
-                # 即使验证失败也继续尝试，因为user_intervene会再次验证
+                conn = sqlite3.connect('conversations.db')
+                cursor = conn.cursor()
+                timestamp = datetime.now().isoformat()
+                user_question = f"提问给 {get_agent_name_by_id(agent_id)}: {question}"
                 
+                # 插入用户提问
+                cursor.execute('INSERT INTO conversations (conference_id, phase_id, agent_id, speech, timestamp) VALUES (?, ?, ?, ?, ?)',
+                              (conference_id, phase_id, "用户", user_question, timestamp))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"记录用户提问时出错: {str(e)}")
+            
+            # 创建或获取监听器任务
+            listener_key = f"{conference_id}_{phase_id}"
+            if listener_key in dialogue_listeners:
+                # 如果已有监听器，检查是否仍在运行
+                monitor_task = dialogue_listeners[listener_key]
+                if monitor_task.done():
+                    # 如果任务已完成，创建新的监听器
+                    monitor_task = asyncio.create_task(monitor_dialogue_file(conference_id, phase_id))
+                    dialogue_listeners[listener_key] = monitor_task
+            else:
+                # 创建新的监听器
+                monitor_task = asyncio.create_task(monitor_dialogue_file(conference_id, phase_id))
+                dialogue_listeners[listener_key] = monitor_task
+            
+            # 处理用户提问
             question_result = await run_with_timeout(
                 user_intervene, conference_id, phase_id, "question", agent_id, question
             )
             
-            if question_result["success"]:
-                dialogue_response = question_result["result"]
-                # 如果获取到专家名称，则在消息中显示
-                agent_name = get_agent_name_by_id(agent_id) if 'get_agent_name_by_id' in globals() else agent_id
-                
-                # 手动将回答添加到对话历史数据库并通过WebSocket发送
-                if dialogue_response and not isinstance(dialogue_response, bool):
-                    timestamp = datetime.now().isoformat()
-                    
-                    # 先添加用户提问到数据库
-                    conn = sqlite3.connect('conversations.db')
-                    cursor = conn.cursor()
-                    try:
-                        # 保存用户提问
-                        user_question = f"提问给 {agent_name}: {question}"
-                        cursor.execute('INSERT INTO conversations (conference_id, phase_id, agent_id, speech, timestamp) VALUES (?, ?, ?, ?, ?)',
-                                      (conference_id, phase_id, "用户", user_question, timestamp))
-                        
-                        # 保存专家回答
-                        cursor.execute('INSERT INTO conversations (conference_id, phase_id, agent_id, speech, timestamp) VALUES (?, ?, ?, ?, ?)',
-                                       (conference_id, phase_id, agent_id, dialogue_response, timestamp))
-                        conn.commit()
-                    finally:
-                        conn.close()
-                    
-                    # 通过WebSocket发送用户提问
-                    await manager.send_dialogue({
-                        "agent_id": "用户",
-                        "agent_name": "用户",
-                        "speech": user_question,
-                        "timestamp": timestamp
-                    }, conference_id)
-                    
-                    # 通过WebSocket发送专家回答
-                    await manager.send_dialogue({
-                        "agent_id": agent_id,
-                        "agent_name": agent_name,
-                        "speech": dialogue_response,
-                        "timestamp": timestamp
-                    }, conference_id)
-                
-                message = f"已向专家 {agent_name} ({agent_id}) 提问，并收到回复"
-            else:
+            if not question_result["success"]:
+                error_msg = question_result.get('error', '未知错误')
                 return JSONResponse({
-                    "message": f"提问失败: {question_result['error']}",
+                    "message": f"提问失败: {error_msg}",
                     "success": False,
-                    "fallback_response": f"由于API调用问题，无法获取 {agent_id} 的回答。请稍后再试。"
+                    "fallback_response": "AI服务暂时不可用，请稍后再试。"
                 }, status_code=500)
+            
+            # 获取代理回答
+            dialogue_response = question_result["result"]
+            
+            # 记录代理回答到数据库
+            try:
+                conn = sqlite3.connect('conversations.db')
+                cursor = conn.cursor()
+                timestamp = datetime.now().isoformat()
+                
+                # 插入代理回答
+                cursor.execute('INSERT INTO conversations (conference_id, phase_id, agent_id, speech, timestamp) VALUES (?, ?, ?, ?, ?)',
+                              (conference_id, phase_id, agent_id, dialogue_response, timestamp))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"记录代理回答时出错: {str(e)}")
+            
+            return JSONResponse({
+                "message": "提问已处理",
+                "success": True,
+                "dialogue": dialogue_response
+            })
+            
         else:
-            return JSONResponse({"message": f"错误：无效的动作 '{action}'", "success": False}, status_code=400)
-
-        # 尝试从文件加载对话历史
-        dialogue_history = []
-        dialogue_file = f"dialogue_history_{conference_id}_{phase_id}.json"
-        try:
-            with open(dialogue_file, "r") as f:
-                dialogue_history = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"警告：对话历史文件问题 {dialogue_file}: {str(e)}")
-            # 如果文件不存在或格式错误，我们创建一个空的历史，而不是中断流程
-
-        # 使用批量操作和事务优化数据库写入
-        conn = sqlite3.connect('conversations.db')
-        try:
-            cursor = conn.cursor()
-            
-            # 先获取已存在的发言记录
-            existing_speeches = set()
-            cursor.execute('SELECT agent_id, speech FROM conversations WHERE conference_id = ? AND phase_id = ?',
-                       (conference_id, phase_id))
-            for row in cursor.fetchall():
-                existing_speeches.add((row[0], row[1]))
-            
-            # 只插入新的发言
-            entries_to_insert = []
-            for entry in dialogue_history:
-                speech_key = (entry["agent_id"], entry["speech"])
-                if speech_key not in existing_speeches:
-                    entries_to_insert.append(
-                        (conference_id, phase_id, entry["agent_id"], entry["speech"], datetime.now().isoformat())
-                    )
-            
-            if entries_to_insert:
-                cursor.executemany(
-                    'INSERT INTO conversations (conference_id, phase_id, agent_id, speech, timestamp) VALUES (?, ?, ?, ?, ?)',
-                    entries_to_insert
-                )
-            conn.commit()
-            print(f"已成功添加 {len(entries_to_insert)} 条新对话到数据库")
-        except Exception as e:
-            conn.rollback()
-            print(f"错误：将对话保存到数据库时发生异常: {str(e)}")
-            # 即使数据库操作失败，我们也继续处理，而不是抛出异常
-        finally:
-            conn.close()
-            
-        # 尝试结束阶段，但捕获可能的异常
-        try:
-            end_phase(conference_id)
-        except Exception as e:
-            print(f"警告：结束阶段时出错: {str(e)}")
-            # 不要让这个错误中断响应
-        
-        # 返回JSON响应
-        response_data = {
-            "message": message,
-            "success": True
-        }
-        
-        if dialogue_response:
-            response_data["dialogue"] = dialogue_response
-            
-        return JSONResponse(response_data)
+            return JSONResponse({
+                "message": f"无效的操作: {action}",
+                "success": False
+            }, status_code=400)
             
     except Exception as e:
+        logger.error(f"处理请求时出错: {str(e)}", exc_info=True)
         return JSONResponse({
-            "message": f"错误：{str(e)}", 
-            "success": False,
-            "error_type": type(e).__name__
+            "message": f"处理请求时出错: {str(e)}",
+            "success": False
         }, status_code=500)
 
 # 结束整个会议
