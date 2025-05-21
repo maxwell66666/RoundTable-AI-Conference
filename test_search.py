@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 from search_engines import (
     format_search_results,
     search_latest_info_with_engine,
-    SearchEngineFactory
+    SearchEngineFactory,
+    get_mock_search_results  # Add this line
 )
 
 # 加载环境变量

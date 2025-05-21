@@ -31,6 +31,7 @@ ENV/
 
 # 本地配置
 .env
+backup_config.ini
 
 # 备份文件
 backups/

@@ -26,6 +26,15 @@ def print_agents():
         print("人格特质:")
         for key, value in personality_traits.items():
             print(f"  - {key}: {value}")
+        print("知识库链接:")
+        if isinstance(knowledge_base_links, list):
+            for link in knowledge_base_links:
+                print(f"  - {link}")
+        elif isinstance(knowledge_base_links, dict):
+            for key, value in knowledge_base_links.items():
+                print(f"  - {key}: {value}")
+        else:
+            print(f"  - {knowledge_base_links}")
         print("沟通风格:")
         for key, value in communication_style.items():
             print(f"  - {key}: {value}")

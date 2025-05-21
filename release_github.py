@@ -120,8 +120,8 @@ def upload_release_assets(upload_url, token, version):
             release_files = [f for f in os.listdir(release_dir) 
                             if f.startswith(f"roundtable_v{version}_") and 
                             (f.endswith(".tar.gz") or f.endswith(".zip"))]
-        except:
-            print("创建发布归档失败")
+        except Exception as e:
+            print(f"创建发布归档失败: {e}")
     
     # 上传每个发布文件
     for file_name in release_files:

@@ -95,7 +95,7 @@ def create_backup():
     
     try:
         print("正在创建系统备份...")
-        result = subprocess.run([sys.executable, "backup.py", "create"], check=True)
+        subprocess.run([sys.executable, "backup.py", "create"], check=True)
         print("系统备份成功")
         return True
     except subprocess.CalledProcessError:

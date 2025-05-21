@@ -3,7 +3,7 @@ import json
 
 def update_experts():
     # 连接数据库
-    conn = sqlite3.connect('C:\\WORK\\code\\RoundTable\\agents.db')
+    conn = sqlite3.connect('agents.db')
     cursor = conn.cursor()
     
     # 清除旧的专家数据

@@ -123,9 +123,7 @@ def load_config():
         # 保存更新后的配置
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             config.write(f)
-    
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE, encoding='utf-8')
+    # The config object is already up-to-date, no need to re-read.
     return config
 
 def get_db_files():
@@ -303,9 +301,10 @@ def upload_to_azure(config, archive_path):
             
             # 确保容器存在
             try:
-                container_client = blob_service_client.create_container(container_name)
+                blob_service_client.create_container(container_name)
+                logger.info(f"Container '{container_name}' created or already exists.")
             except ResourceExistsError:
-                container_client = blob_service_client.get_container_client(container_name)
+                logger.info(f"Container '{container_name}' already exists.")
             
             # 上传文件
             file_name = os.path.basename(archive_path)
@@ -357,15 +356,21 @@ def clean_old_backups(config):
                 logger.info(f"删除过期备份: {filename}")
                 os.remove(file_path)
 
+def _generate_windows_schedule_command(config_backup_time, script_executable, script_path):
+    return f"schtasks /create /sc DAILY /ST {config_backup_time} /tn \"RoundTable自动备份\" /tr \"{script_executable} {script_path} --auto\" /f"
+
 def create_schedule_script():
     """创建定时备份的调度脚本"""
     # 为不同平台创建调度脚本
     if os.name == 'nt':  # Windows
         try:
+            config = load_config()
+            backup_time = config['schedule']['backup_time']
+            command = _generate_windows_schedule_command(backup_time, sys.executable, os.path.abspath(__file__))
             with open("schedule_backup.bat", "w", encoding='utf-8') as f:
                 f.write('@echo off\n')
-                f.write(f'schtasks /create /sc {schedule} /tn "RoundTable自动备份" /tr "{sys.executable} {os.path.abspath(__file__)} --auto" /f\n')
-                f.write(f'echo 已创建计划任务: RoundTable自动备份 ({schedule})\n')
+                f.write(f'{command}\n')
+                f.write(f'echo 已创建计划任务: RoundTable自动备份 (每日 {backup_time})\n')
             os.system("schedule_backup.bat")
             os.remove("schedule_backup.bat")
         except Exception as e:
@@ -740,7 +745,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="要执行的命令")
     
     # 配置命令
-    config_parser = subparsers.add_parser("config", help="配置备份设置")
+    subparsers.add_parser("config", help="配置备份设置")
     
     # 创建备份命令
     create_parser = subparsers.add_parser("create", help="创建新备份")
@@ -751,7 +756,7 @@ def main():
     restore_parser.add_argument("file", help="要恢复的备份文件")
     
     # 列出本地备份命令
-    list_local_parser = subparsers.add_parser("list-local", help="列出本地备份")
+    subparsers.add_parser("list-local", help="列出本地备份")
     
     # 列出云备份命令
     list_cloud_parser = subparsers.add_parser("list-cloud", help="列出云存储备份")
@@ -765,7 +770,7 @@ def main():
     download_parser.add_argument("file", help="要下载的备份文件名")
     
     # 调度命令
-    schedule_parser = subparsers.add_parser("schedule", help="创建调度脚本")
+    subparsers.add_parser("schedule", help="创建调度脚本")
     
     # 解析参数
     args = parser.parse_args()
