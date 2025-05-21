@@ -8,7 +8,6 @@
 
 import os
 import sqlite3
-import shutil
 import glob
 
 def clean_database(db_path, keep_structure=True):

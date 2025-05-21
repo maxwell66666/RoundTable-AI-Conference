@@ -7,9 +7,8 @@ API连接测试脚本
 """
 
 import os
-import sys
 from dotenv import load_dotenv
-from round_table import test_api_connection, init_api_client
+from round_table import test_api_connection
 
 # 加载环境变量
 load_dotenv()

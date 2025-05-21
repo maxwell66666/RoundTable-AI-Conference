@@ -1,4 +1,4 @@
-from agent_db import get_agent, list_agents, get_random_agents
+from agent_db import get_agent, list_agents
 from conference_organizer import get_conference
 import random
 import json
@@ -9,8 +9,6 @@ import time
 import importlib
 import re
 from datetime import datetime
-import shutil
-import requests
 
 # 从 .env 文件加载环境变量
 load_dotenv()
@@ -37,7 +35,7 @@ def init_api_client(provider):
         api_key = os.getenv("ONEAPI_API_KEY")
         base_url = os.getenv("ONEAPI_BASE_URL", "https://api.ffa.chat/v1")
         if not api_key:
-            print(f"警告: OneAPI 密钥未设置")
+            print("警告: OneAPI 密钥未设置")
             return None
         client = OpenAI(api_key=api_key, base_url=base_url)
         api_clients[provider] = {"client": client, "type": "openai_compatible"}
@@ -47,7 +45,7 @@ def init_api_client(provider):
         api_key = os.getenv("OPENAI_API_KEY")
         base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         if not api_key:
-            print(f"警告: OpenAI 密钥未设置")
+            print("警告: OpenAI 密钥未设置")
             return None
         client = OpenAI(api_key=api_key, base_url=base_url)
         api_clients[provider] = {"client": client, "type": "openai_compatible"}
@@ -56,7 +54,7 @@ def init_api_client(provider):
     elif provider == "anthropic":
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            print(f"警告: Anthropic 密钥未设置")
+            print("警告: Anthropic 密钥未设置")
             return None
         try:
             # 这里使用条件导入，因为可能没有安装 anthropic 库
@@ -65,13 +63,13 @@ def init_api_client(provider):
             api_clients[provider] = {"client": client, "type": "anthropic"}
             return api_clients[provider]
         except (ImportError, ModuleNotFoundError):
-            print(f"警告: Anthropic 库未安装，请使用 pip install anthropic 安装")
+            print("警告: Anthropic 库未安装，请使用 pip install anthropic 安装")
             return None
     
     elif provider == "gemini":
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            print(f"警告: Gemini 密钥未设置")
+            print("警告: Gemini 密钥未设置")
             return None
         try:
             # 使用条件导入 Google Generative AI 库
@@ -80,14 +78,14 @@ def init_api_client(provider):
             api_clients[provider] = {"client": genai, "type": "gemini"}
             return api_clients[provider]
         except (ImportError, ModuleNotFoundError):
-            print(f"警告: Google Generative AI 库未安装，请使用 pip install google-generativeai 安装")
+            print("警告: Google Generative AI 库未安装，请使用 pip install google-generativeai 安装")
             return None
     
     elif provider == "deepseek":
         api_key = os.getenv("DEEPSEEK_API_KEY")
         base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
         if not api_key:
-            print(f"警告: DeepSeek 密钥未设置")
+            print("警告: DeepSeek 密钥未设置")
             return None
         client = OpenAI(api_key=api_key, base_url=base_url)
         api_clients[provider] = {"client": client, "type": "openai_compatible"}
@@ -97,7 +95,7 @@ def init_api_client(provider):
         api_key = os.getenv("SILICONFLOW_API_KEY")
         base_url = os.getenv("SILICONFLOW_BASE_URL", "https://api.ffa.chat/v1")
         if not api_key:
-            print(f"警告: SiliconFlow 密钥未设置")
+            print("警告: SiliconFlow 密钥未设置")
             return None
         client = OpenAI(api_key=api_key, base_url=base_url)
         api_clients[provider] = {"client": client, "type": "openai_compatible"}
@@ -107,7 +105,7 @@ def init_api_client(provider):
         api_key = os.getenv("VOLCENGINE_API_KEY")
         base_url = os.getenv("VOLCENGINE_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
         if not api_key:
-            print(f"警告: 火山引擎密钥未设置")
+            print("警告: 火山引擎密钥未设置")
             return None
         # 火山引擎使用OpenAI兼容客户端，添加重试和超时配置
         print(f"初始化火山引擎API客户端，使用base_url: {base_url}")
@@ -125,7 +123,7 @@ def init_api_client(provider):
         secret_key = os.getenv("TENCENTCLOUD_SECRET_KEY")
         region = os.getenv("TENCENTCLOUD_REGION", "ap-beijing")
         if not secret_id or not secret_key:
-            print(f"警告: 腾讯云密钥未设置")
+            print("警告: 腾讯云密钥未设置")
             return None
         try:
             # 使用条件导入腾讯云 SDK
@@ -143,7 +141,7 @@ def init_api_client(provider):
             api_clients[provider] = {"client": client, "type": "tencentcloud", "models_module": models}
             return api_clients[provider]
         except (ImportError, ModuleNotFoundError):
-            print(f"警告: 腾讯云 SDK 未安装，请使用 pip install tencentcloud-sdk-python 安装")
+            print("警告: 腾讯云 SDK 未安装，请使用 pip install tencentcloud-sdk-python 安装")
             return None
     
     elif provider == "aliyun":
@@ -151,7 +149,7 @@ def init_api_client(provider):
         access_key_secret = os.getenv("ALIYUN_ACCESS_KEY_SECRET")
         region = os.getenv("ALIYUN_REGION", "cn-hangzhou")
         if not access_key_id or not access_key_secret:
-            print(f"警告: 阿里云密钥未设置")
+            print("警告: 阿里云密钥未设置")
             return None
         try:
             # 使用条件导入阿里云 SDK
@@ -162,14 +160,14 @@ def init_api_client(provider):
             api_clients[provider] = {"client": client, "type": "aliyun", "request_class": CommonRequest}
             return api_clients[provider]
         except (ImportError, ModuleNotFoundError):
-            print(f"警告: 阿里云 SDK 未安装，请使用 pip install aliyun-python-sdk-core 安装")
+            print("警告: 阿里云 SDK 未安装，请使用 pip install aliyun-python-sdk-core 安装")
             return None
     
     elif provider == "openrouter":
         api_key = os.getenv("OPENROUTER_API_KEY")
         base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         if not api_key:
-            print(f"警告: OpenRouter 密钥未设置")
+            print("警告: OpenRouter 密钥未设置")
             return None
         # OpenRouter使用OpenAI兼容客户端，添加重试和超时配置
         print(f"初始化OpenRouter API客户端，使用base_url: {base_url}")
@@ -271,7 +269,7 @@ Your response MUST be in Chinese. Even if the question is in English, please res
                     return f"API 调用错误：请求超时 ({api_timeout}秒)，请检查网络连接或增加超时时间"
                 # 检查是否是认证错误
                 elif "auth" in error_msg.lower() or "key" in error_msg.lower() or "unauthorized" in error_msg.lower():
-                    return f"API 调用错误：认证失败，请检查API密钥是否正确"
+                    return "API 调用错误：认证失败，请检查API密钥是否正确"
                 # 检查是否是模型不存在错误
                 elif "model" in error_msg.lower() and ("not found" in error_msg.lower() or "doesn't exist" in error_msg.lower()):
                     return f"API 调用错误：模型 '{model}' 不存在或不可用"
@@ -711,11 +709,10 @@ def start_phase_discussion(conference_id, phase_id):
             return error_msg
 
         current_phase = conference.agenda[phase_id]
-        phase_name = current_phase["phase_name"]
         topics = current_phase["topics"]
         topic = topics[0]  # 为简单起见使用第一个话题
 
-        print(f"开始 {phase_name} 讨论，主题为 {topic}...")
+        print(f"开始 {current_phase['phase_name']} 讨论，主题为 {topic}...")
         agents = [get_agent(agent_id) for agent_id in conference.participant_agent_ids]
         if not agents or any(agent is None for agent in agents):
             error_msg = "错误：未找到有效的讨论代理！"
@@ -737,7 +734,7 @@ def start_phase_discussion(conference_id, phase_id):
                         # 如果已有对话记录，直接返回
                         return dialogue_history
         except (FileNotFoundError, json.JSONDecodeError):
-            print(f"未找到现有对话历史或文件格式错误，将创建新的对话历史")
+            print("未找到现有对话历史或文件格式错误，将创建新的对话历史")
         
         # 选择主持人和其他专家
         moderator, other_agents = select_moderator(agents, conference_id)
@@ -765,7 +762,7 @@ def start_phase_discussion(conference_id, phase_id):
         print("第三步：添加系统提示...")
         # 添加系统提示，告知用户可以提问
         timestamp = datetime.now().isoformat()
-        system_prompt = f"讨论已开始，您可以随时向任何专家提问，或让他们继续讨论。"
+        system_prompt = "讨论已开始，您可以随时向任何专家提问，或让他们继续讨论。"
         dialogue_history.append({"agent_id": "系统", "speech": system_prompt, "timestamp": timestamp})
         save_dialogue_history(dialogue_history, conference_id, phase_id)
         
@@ -808,7 +805,7 @@ def handle_moderator_opening(moderator, other_agents, topic, conference_id, phas
     print(moderator_speech)
     
     # 自动开始专家讨论
-    print(f"主持人开场发言完成，自动开始专家讨论...")
+    print("主持人开场发言完成，自动开始专家讨论...")
     
     # 进行2轮专家讨论
     discussion_rounds = 2
@@ -848,7 +845,7 @@ def handle_moderator_opening(moderator, other_agents, topic, conference_id, phas
     
     # 添加系统提示，告知用户可以提问
     timestamp = datetime.now().isoformat()
-    system_prompt = f"主持人已总结完毕，您现在可以向专家提问。请在下方选择\"提问\"并选择要提问的专家。"
+    system_prompt = "主持人已总结完毕，您现在可以向专家提问。请在下方选择\"提问\"并选择要提问的专家。"
     dialogue_history.append({"agent_id": "系统", "speech": system_prompt, "timestamp": timestamp})
     save_dialogue_history(dialogue_history, conference_id, phase_id)
     
@@ -995,7 +992,7 @@ def initialize_meeting_end_phase(moderator, other_agents, topic, conference_id, 
     
     # 添加一条提示信息
     timestamp = datetime.now().isoformat()
-    prompt_message = f"会议即将结束。您可以再次提问，发表意见，或选择结束会议。"
+    prompt_message = "会议即将结束。您可以再次提问，发表意见，或选择结束会议。"
     dialogue_history.append({"agent_id": "系统", "speech": prompt_message, "timestamp": timestamp})
     
     # 将对话历史保存到文件，用于实时流式传输
@@ -1030,7 +1027,6 @@ def user_intervene(conference_id, phase_id, user_action, target_agent_id=None, u
 
     current_phase = conference.agenda[phase_id]
     topic = current_phase["topics"][0]
-    phase_name = current_phase["phase_name"]
 
     if user_action == "interrupt":
         print(f"用户中断了关于 {topic} 的讨论。")
@@ -1150,10 +1146,6 @@ def handle_user_question_phase(conference_id, phase_id, agent, provider, model_n
             for i, other_agent in enumerate(other_agents):
                 print(f"专家 {i+1}/{len(other_agents)}: {other_agent.name} 正在准备发言...")
                 
-                # 获取用户问题和专家回答作为上下文
-                user_question_entry = dialogue_history[-2] if len(dialogue_history) >= 2 else None
-                expert_answer_entry = dialogue_history[-1] if dialogue_history else None
-                
                 # 为其他专家创建特定的提示，确保他们参考用户问题和专家回答
                 expert_prompt = f"""作为 {other_agent.name}，请针对以下用户问题和专家回答发表您的看法：
 
@@ -1217,7 +1209,7 @@ def handle_user_question_phase(conference_id, phase_id, agent, provider, model_n
         
         # 添加系统提示，告知用户可以继续提问或结束会议
         timestamp = datetime.now().isoformat()
-        system_prompt = f"主持人已总结完毕，您可以继续向专家提问，或选择结束会议。"
+        system_prompt = "主持人已总结完毕，您可以继续向专家提问，或选择结束会议。"
         dialogue_history.append({"agent_id": "系统", "speech": system_prompt, "timestamp": timestamp})
         save_dialogue_history(dialogue_history, conference_id, phase_id)
         print("系统提示已添加，用户可以继续提问或结束会议")

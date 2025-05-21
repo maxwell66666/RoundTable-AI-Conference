@@ -6,10 +6,8 @@
 """
 
 import os
-import sys
 from dotenv import load_dotenv
 from search_engines import (
-    search_with_engine,
     format_search_results,
     search_latest_info_with_engine,
     SearchEngineFactory

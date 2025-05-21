@@ -6,17 +6,13 @@
 
 import os
 import sys
-import json
 import shutil
-import sqlite3
 import argparse
 import logging
 import tarfile
 import zipfile
 import datetime
 import configparser
-from pathlib import Path
-from io import BytesIO
 from dotenv import load_dotenv
 
 # 加载环境变量
@@ -367,7 +363,7 @@ def create_schedule_script():
     if os.name == 'nt':  # Windows
         try:
             with open("schedule_backup.bat", "w", encoding='utf-8') as f:
-                f.write(f'@echo off\n')
+                f.write('@echo off\n')
                 f.write(f'schtasks /create /sc {schedule} /tn "RoundTable自动备份" /tr "{sys.executable} {os.path.abspath(__file__)} --auto" /f\n')
                 f.write(f'echo 已创建计划任务: RoundTable自动备份 ({schedule})\n')
             os.system("schedule_backup.bat")

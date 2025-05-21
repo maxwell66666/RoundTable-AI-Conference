@@ -8,6 +8,7 @@ def with_db_connection(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         conn = sqlite3.connect('agents.db')
+        conn.row_factory = sqlite3.Row
         try:
             result = func(conn, *args, **kwargs)
             conn.commit()
@@ -138,12 +139,12 @@ def get_agent(conn, agent_id):
 
     if row:
         agent = Agent(
-            row[0],  # agent_id
-            row[1],  # name
-            json.loads(row[2]),  # background_info
-            json.loads(row[3]),  # personality_traits
-            json.loads(row[4]),  # knowledge_base_links
-            json.loads(row[5])   # communication_style
+            row['agent_id'],
+            row['name'],
+            json.loads(row['background_info']),
+            json.loads(row['personality_traits']),
+            json.loads(row['knowledge_base_links']),
+            json.loads(row['communication_style'])
         )
         return agent
     return None
@@ -174,12 +175,12 @@ def list_agents(conn, filters=None):
     agents = []
     for row in rows:
         agent = Agent(
-            row[0],  # agent_id
-            row[1],  # name
-            json.loads(row[2]),  # background_info
-            json.loads(row[3]),  # personality_traits
-            json.loads(row[4]),  # knowledge_base_links
-            json.loads(row[5])   # communication_style
+            row['agent_id'],
+            row['name'],
+            json.loads(row['background_info']),
+            json.loads(row['personality_traits']),
+            json.loads(row['knowledge_base_links']),
+            json.loads(row['communication_style'])
         )
         agents.append(agent)
     return agents
@@ -233,12 +234,12 @@ def get_random_agents(conn, num_agents, diversity_parameters=None):
     rows = cursor.fetchall()
 
     agents = [Agent(
-        row[0],  # agent_id
-        row[1],  # name
-        json.loads(row[2]),  # background_info
-        json.loads(row[3]),  # personality_traits
-        json.loads(row[4]),  # knowledge_base_links
-        json.loads(row[5])   # communication_style
+        row['agent_id'],
+        row['name'],
+        json.loads(row['background_info']),
+        json.loads(row['personality_traits']),
+        json.loads(row['knowledge_base_links']),
+        json.loads(row['communication_style'])
     ) for row in rows]
 
     if len(agents) < num_agents:

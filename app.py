@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Form, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -9,7 +9,7 @@ import logging
 from round_table import start_phase_discussion, user_intervene, get_agent_name_by_id
 from conference_organizer import (
     create_conference, start_conference, 
-    end_phase, end_conference, get_conference, 
+    end_conference, get_conference, 
     list_conferences, init_conference_db, delete_conference
 )
 from agent_db import list_agents, init_agent_db
@@ -18,11 +18,9 @@ import asyncio
 import concurrent.futures
 from typing import List, Dict, Any
 from starlette.websockets import WebSocketState
-import threading
 from version import get_version, get_version_info
 from db_migrations import run_migrations
 import os
-import random
 import uuid
 import shutil
 
@@ -62,7 +60,7 @@ def generate_agenda(topic):
         {
             "phase_name": "总结",
             "topics": [topic],
-            "description": f"归纳讨论中的关键点，提出具体可行的结论和建议"
+            "description": "归纳讨论中的关键点，提出具体可行的结论和建议"
         }
     ]
     return agenda
@@ -417,9 +415,6 @@ async def start_new_conference(request: Request):
         num_agents = 5  # 默认值
     
     try:
-        # 生成动态议程
-        agenda = generate_agenda(topic)
-        
         # 检查是否有足够的 agent 可用
         available_agents = list_agents()
         if len(available_agents) < num_agents:
@@ -537,7 +532,6 @@ async def save_dialogue_to_db(dialogue_entry, conference_id, phase_id):
 async def monitor_dialogue_file(conference_id, phase_id):
     history_dir = "dialogue_histories"
     dialogue_file = os.path.join(history_dir, f"dialogue_history_{conference_id}_{phase_id}.json")
-    last_size = 0
     last_count = 0
     
     while True:
@@ -563,7 +557,7 @@ async def monitor_dialogue_file(conference_id, phase_id):
                     # 如果没有timestamp，添加当前时间
                     if "timestamp" not in entry:
                         entry["timestamp"] = datetime.now().isoformat()
-                        print(f"警告：对话记录缺少timestamp字段，已自动添加")
+                        print("警告：对话记录缺少timestamp字段，已自动添加")
                     
                     await save_dialogue_to_db(entry, conference_id, phase_id)
                 last_count = len(dialogue_history)
@@ -585,7 +579,6 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
 
         # 创建一个 dialogue_response 变量存储响应
         dialogue_response = None
-        message = "处理失败，请重试"
 
         # 使用超时执行任务 - 防止 API 调用卡住
         async def run_with_timeout(func, *args, timeout=60):  # 增加默认超时时间到60秒
@@ -781,8 +774,20 @@ async def end_conference_phase(request: Request, conference_id: str, action: str
 async def end_entire_conference(request: Request, conference_id: str):
     try:
         end_conference(conference_id)
+        
+        # 取消相关的监听任务
+        for listener_key in list(dialogue_listeners.keys()):
+            if listener_key.startswith(f"{conference_id}_"):
+                task = dialogue_listeners.pop(listener_key)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.info(f"已取消监听任务: {listener_key}")
+        
         return await home(request)
     except Exception as e:
+        logger.error(f"结束会议 {conference_id} 时出错: {e}", exc_info=True)
         return HTMLResponse(f"错误：{str(e)}", status_code=500)
 
 @app.delete("/api/conferences/{conference_id}")
@@ -797,7 +802,18 @@ async def delete_conference_endpoint(conference_id: str):
         # 删除会议
         delete_conference(conference_id)
         
+        # 取消相关的监听任务
+        for listener_key in list(dialogue_listeners.keys()):
+            if listener_key.startswith(f"{conference_id}_"):
+                task = dialogue_listeners.pop(listener_key)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.info(f"已取消监听任务: {listener_key} (会议删除)")
+        
         return {"message": f"会议 '{conference.title}' 已成功删除"}
     except Exception as e:
+        logger.error(f"删除会议 {conference_id} 时出错: {e}", exc_info=True)
         return JSONResponse(status_code=500,
                           content={"error": f"删除会议时出错: {str(e)}"})

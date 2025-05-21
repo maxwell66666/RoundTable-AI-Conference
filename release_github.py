@@ -8,7 +8,6 @@ import os
 import sys
 import argparse
 import subprocess
-from datetime import datetime
 import json
 import requests
 

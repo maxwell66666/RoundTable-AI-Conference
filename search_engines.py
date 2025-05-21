@@ -1,8 +1,7 @@
 import os
-import json
 import requests
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Union
+from typing import List
 
 # 搜索结果接口
 class SearchResult:
@@ -268,7 +267,7 @@ def search_with_engine(query: str, engine_name: str = None, **kwargs) -> List[Se
         if results:
             return results
         else:
-            print(f"搜索未返回结果，使用模拟数据")
+            print("搜索未返回结果，使用模拟数据")
             return get_mock_search_results(query)
     except Exception as e:
         print(f"搜索出错: {str(e)}，使用模拟数据")

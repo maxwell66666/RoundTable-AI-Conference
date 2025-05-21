@@ -3,9 +3,7 @@
 管理数据库架构的变更和版本控制
 """
 
-import os
 import sqlite3
-import json
 from datetime import datetime
 from version import get_db_schema_version
 

@@ -1,7 +1,7 @@
 import sqlite3
 import json
 from datetime import datetime
-from agent_db import get_agent, list_agents, get_random_agents
+from agent_db import get_random_agents
 
 # 定义 Conference 类
 class Conference:
@@ -79,7 +79,7 @@ def init_conference_db(conn):
     columns = [row[1] for row in cursor.fetchall()]
     
     # 创建会议表（带NOT NULL约束）
-    if not 'conferences' in [table[0] for table in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]:
+    if 'conferences' not in [table[0] for table in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS conferences (
                 conference_id TEXT PRIMARY KEY NOT NULL,
@@ -111,7 +111,7 @@ def create_conference(conference_id, title, topic, num_agents, conference_type="
         {
             "phase_name": "智能讨论",
             "topics": [topic],
-            "description": f"主持人开场并搜索信息，专家讨论，用户可随时提问"
+            "description": "主持人开场并搜索信息，专家讨论，用户可随时提问"
         }
     ]
     
@@ -167,21 +167,20 @@ def get_conference(conference_id, conn):
     row = cursor.fetchone()
 
     if row:
-        # 检查是否有会议类型字段
-        conference_type = row[8] if len(row) > 8 else "战略讨论"
-        current_phase_index = row[7] if len(row) > 7 else -1
+        conference_type = row['conference_type'] if 'conference_type' in row.keys() and row['conference_type'] is not None else "战略讨论"
+        current_phase_index = row['current_phase_index'] if 'current_phase_index' in row.keys() and row['current_phase_index'] is not None else -1
         
         conference = Conference(
-            row[0],  # conference_id
-            row[1],  # title
-            json.loads(row[2]),  # agenda
-            json.loads(row[3]),  # participant_agent_ids
-            current_phase_index,  # current_phase_index (默认 -1 如果缺失)
-            conference_type  # conference_type
+            row['conference_id'],
+            row['title'],
+            json.loads(row['agenda']),
+            json.loads(row['participant_agent_ids']),
+            current_phase_index,
+            conference_type
         )
-        conference.start_time = row[4]
-        conference.end_time = row[5]
-        conference.summary = row[6]
+        conference.start_time = row['start_time']
+        conference.end_time = row['end_time']
+        conference.summary = row['summary']
         return conference
     return None
 
@@ -189,15 +188,21 @@ def get_conference(conference_id, conn):
 def list_conferences(conn):
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM conferences')
-    return [
-        Conference(
+    conferences = []
+    for row in cursor.fetchall():
+        conf = Conference(
             row['conference_id'],
             row['title'],
             json.loads(row['agenda']),
             json.loads(row['participant_agent_ids']),
-            row['current_phase_index']
-        ) for row in cursor.fetchall()
-    ]
+            row['current_phase_index'],
+            row['conference_type'] if 'conference_type' in row.keys() and row['conference_type'] is not None else "战略讨论"
+        )
+        conf.start_time = row['start_time'] if 'start_time' in row.keys() else None
+        conf.end_time = row['end_time'] if 'end_time' in row.keys() else None
+        conf.summary = row['summary'] if 'summary' in row.keys() else None
+        conferences.append(conf)
+    return conferences
 
 def advance_phase(conference_id):
     conference = get_conference(conference_id)

@@ -7,7 +7,6 @@
 import os
 import re
 import sys
-import json
 import argparse
 import subprocess
 from datetime import datetime
@@ -201,7 +200,6 @@ def create_release_archive(version):
             if os.name == "nt":
                 # Windows可以使用内置的zipfile模块
                 import zipfile
-                import glob
                 
                 def should_exclude(file_path):
                     """检查文件是否应该被排除"""
